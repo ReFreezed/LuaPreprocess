@@ -2,6 +2,7 @@
 --=
 --=  Lua preprocessor
 --=  by Marcus 'ReFreezed' Thunström (marcus.refreezed.com)
+--=  License at the bottom of this file.
 --=
 --=  Tested for Lua 5.1.
 --=
@@ -385,8 +386,8 @@ if not paths[1] then
 end
 
 for _, path in ipairs(paths) do
-	if not path:find"%.lua2p$" then
-		errorline("Invalid path '"..path.."'. (Paths are currently required to end with .lua2p)")
+	if path:find"%.lua$" then
+		errorline("Invalid path '"..path.."'. (Paths must not end with .lua as those will be used as output paths.)")
 	end
 end
 
@@ -547,7 +548,7 @@ for _, path in ipairs(paths) do
 	-- Run metaprogram.
 	--==============================================================
 
-	local pathMeta = path:gsub("%.lua2p$", ".meta.lua")
+	local pathMeta = path:gsub("%.%w+$", "")..".meta.lua"
 	local luaParts = {}
 
 	local metaEnv = {}
@@ -650,7 +651,7 @@ for _, path in ipairs(paths) do
 	-- Write output file.
 	----------------------------------------------------------------
 
-	local pathOut = path:gsub("%.lua2p$", ".lua")
+	local pathOut = path:gsub("%.%w+$", "")..".lua"
 	local file    = assert(io.open(pathOut, "wb"))
 	file:write(specialFirstLine or "")
 	file:write(lua)
@@ -668,3 +669,27 @@ for _, path in ipairs(paths) do
 end
 
 print("All done!")
+
+--[[!===========================================================
+
+Copyright © 2018 Marcus 'ReFreezed' Thunström
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==============================================================]]
