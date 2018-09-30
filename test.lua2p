@@ -9,25 +9,25 @@ print(a)
 !local b = "b" -- Comment B.
 !print(b)
 
-a = a..!{b}..a -- Comment, string concat.
+a = a..!(b)..a -- Comment, string concat.
 
 !-- We be countin'!
 !for x = 1, 3 do
 	print("Aaaaand...")
-	print(!{x*2})
+	print(!(x*2))
 !end
 
 !x = --[[ Global variable and
 multiline comment here...]] true
 
-!{
+!(
 -- Meta block.
 local function sum(x, y)
 	return x+y
 end
-}
+)
 
-local c   = !{100+sum(10, 5)}
-local str = !{run"testInclude.lua"}
+local c   = !(100+sum(10, 5))
+local str = !(run"testInclude.lua")
 
 print("The end.")

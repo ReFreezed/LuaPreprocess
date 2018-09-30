@@ -31,15 +31,15 @@ local n = 0
 !end
 
 -- Preprocessor block.
-!{
+!(
 local dogWord = "Woof "
 function getDogText()
 	return dogWord:rep(3)
 end
-}
+)
 
 -- Preprocessor inline block. (Expression that returns a value.)
-local text = !{"The dog said: "..getDogText()}
+local text = !("The dog said: "..getDogText())
 ```
 
 
@@ -54,14 +54,16 @@ How to preprocess your Lua files from the command line:
 
 #### Windows
 ```batch
-Preprocess.cmd filepath1 [filepath2 ...]
+Preprocess.cmd [options] filepath1 [filepath2 ...]
 ```
 
 #### Any System
 ```batch
-lua main.lua filepath1 [filepath2 ...]
+lua main.lua [options] filepath1 [filepath2 ...]
 ```
 
 If a filepath is, for example, `C:/MyApp/app.lua2p` then *LuaPreprocess* will write the processed file to `C:/MyApp/app.lua`.
+
+See the top of [main.lua](main.lua) for the options and more info.
 
 
