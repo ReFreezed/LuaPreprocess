@@ -11,13 +11,13 @@
 --==============================================================
 
 	Script usage:
-		lua main.lua [--handler=pathToMessageHandler] [--] path1 [path2...]
+		lua main.lua [--handler=pathToMessageHandler] [--silent] [--] path1 [path2...]
 
 	Options:
 		--handler  Path to a Lua file that's expected to return a function.
 		           The function will be called with various messages as it's
 		           first argument. (See 'Handler messages')
-
+		--silent   Only print errors to the console.
 		--         Stop options from being parsed further.
 
 ----------------------------------------------------------------
@@ -130,6 +130,8 @@ local ESCAPE_SEQUENCES = {
 
 local ERROR_UNFINISHED_VALUE = 1
 
+local silent = false
+
 --==============================================================
 --= Local Functions ============================================
 --==============================================================
@@ -139,13 +141,16 @@ local error, errorline, errorOnLine, errorInFile
 local F
 local getFileContents, fileExists
 local parseStringlike
-local printf, printTokens
+local printf, printfNoise, printTokens
 local tokensizeLua
 
 F = string.format
 
 function printf(s, ...)
 	print(s:format(...))
+end
+function printfNoise(s, ...)
+	if not silent then  printf(s, ...)  end
 end
 function printTokens(tokens, filter)
 	for i, tok in ipairs(tokens) do
@@ -486,14 +491,6 @@ end
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
-local header = "= LuaPreprocess v"..VERSION..os.date", %Y-%m-%d %H:%M:%S ="
-print(("="):rep(#header))
-print(header)
-print(("="):rep(#header))
-
-math.randomseed(os.time()) -- Just in case math.random() is used anywhere.
-math.random() -- Must kickstart...
-
 -- Parse script arguments.
 local processOptions     = true
 local messageHandlerPath = ""
@@ -509,6 +506,9 @@ for i = 1, select("#", ...) do
 		elseif arg:find"^%-%-handler=" then
 			messageHandlerPath = arg:match"^%-%-handler=(.*)$"
 
+		elseif arg == "--silent" then
+			silent = true
+
 		else
 			errorline("Unknown")
 		end
@@ -517,6 +517,14 @@ for i = 1, select("#", ...) do
 		table.insert(paths, arg)
 	end
 end
+
+local header = "= LuaPreprocess v"..VERSION..os.date", %Y-%m-%d %H:%M:%S ="
+printfNoise(("="):rep(#header))
+printfNoise("%s", header)
+printfNoise(("="):rep(#header))
+
+math.randomseed(os.time()) -- Just in case math.random() is used anywhere.
+math.random() -- Must kickstart...
 
 -- Load message handler.
 local messageHandler = nil
@@ -582,7 +590,7 @@ for _, path in ipairs(paths) do
 end
 
 for _, path in ipairs(paths) do
-	printf("Processing '%s'...", path)
+	printfNoise("Processing '%s'...", path)
 
 	local file, err = io.open(path, "rb")
 	if not file then
@@ -854,6 +862,8 @@ for _, path in ipairs(paths) do
 		end
 	end)
 
+	os.remove(pathMeta)
+
 	local lua = table.concat(luaParts)
 	--[[ :PrintCode
 	print("=OUTPUT=============================")
@@ -889,11 +899,11 @@ for _, path in ipairs(paths) do
 
 	if messageHandler then  messageHandler("filedone", path, pathOut)  end
 
-	printf("Processing '%s'... done!", path)
-	printf(("-"):rep(#header))
+	printfNoise("Processing '%s'... done!", path)
+	printfNoise(("-"):rep(#header))
 end
 
-print("All done!")
+printfNoise("All done!")
 
 --[[!===========================================================
 
