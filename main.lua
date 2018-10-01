@@ -11,14 +11,27 @@
 --==============================================================
 
 	Script usage:
-		lua main.lua [--handler=pathToMessageHandler] [--silent] [--] path1 [path2...]
+		lua main.lua [options] [--] path1 [path2 ...]
 
 	Options:
-		--handler  Path to a Lua file that's expected to return a function.
-		           The function will be called with various messages as it's
-		           first argument. (See 'Handler messages')
-		--silent   Only print errors to the console.
-		--         Stop options from being parsed further.
+		--handler=pathToMessageHandler
+			Path to a Lua file that's expected to return a function.
+			The function will be called with various messages as it's
+			first argument. (See 'Handler messages')
+
+		--linenumbers
+			Add comments with line numbers to output.
+
+		--silent
+			Only print errors to the console.
+
+		--debug
+			Enable some preprocessing debug features. Useful if you want
+			to inspect the generated metaprogram (*.meta.lua).
+
+		--
+			Stop options from being parsed further. Needed if you have
+			paths starting with "-".
 
 ----------------------------------------------------------------
 
@@ -54,7 +67,7 @@
 	-- Beware in preprocessor blocks that only call a single function!
 	!(func())  -- This will bee seen as an inline block and output whatever value func() returns (nil if nothing) as a literal.
 	!(func();) -- If that's not wanted then a trailing ";" will prevent that. This line won't output anything by itself.
-	-- When the full metaprogram is created, "!(func())" is translated into "outputValue(func())"
+	-- When the full metaprogram is generated, "!(func())" is translated into "outputValue(func())"
 	-- while "!(func();)" is translated into simply "func();", because "outputValue(func();)" would be invalid Lua code.
 
 ----------------------------------------------------------------
@@ -130,13 +143,16 @@ local ESCAPE_SEQUENCES = {
 
 local ERROR_UNFINISHED_VALUE = 1
 
-local silent = false
+local addLineNumbers = false
+local isDebug        = false
+local silent         = false
 
 --==============================================================
 --= Local Functions ============================================
 --==============================================================
 local assertarg
 local concatTokens
+local countString
 local error, errorline, errorOnLine, errorInFile
 local F
 local getFileContents, fileExists
@@ -255,9 +271,12 @@ function parseStringlike(s, ptr)
 	return tok, ptr
 end
 
+-- tokens = tokensizeLua( string, filepath )
+-- token  = { type=tokenType, line=lineNumber, position=startBytePosition, representation=representation, value=value }
 function tokensizeLua(s, path)
 	local tokens = {}
 	local ptr    = 1
+	local ln     = 1
 
 	while ptr <= #s do
 		local tok
@@ -414,7 +433,11 @@ function tokensizeLua(s, path)
 			errorInFile(s, path, ptr, "Tokenizer", "Unknown character.")
 		end
 
+		tok.line     = ln
 		tok.position = tokenPos
+
+		ln = ln+countString(tok.representation, "\n", true)
+
 		table.insert(tokens, tok)
 		-- print(#tokens, tok.type, tok.representation)
 	end
@@ -422,11 +445,24 @@ function tokensizeLua(s, path)
 	return tokens
 end
 
-function concatTokens(tokens)
+function concatTokens(tokens, lastLn)
 	local parts = {}
-	for i, tok in ipairs(tokens) do
-		parts[i] = tok.representation
+
+	if addLineNumbers then
+		for i, tok in ipairs(tokens) do
+			if tok.line ~= lastLn then
+				table.insert(parts, "--[[@"..tok.line.."]]")
+				lastLn = tok.line
+			end
+			table.insert(parts, tok.representation)
+		end
+
+	else
+		for i, tok in ipairs(tokens) do
+			parts[i] = tok.representation
+		end
 	end
+
 	return table.concat(parts)
 end
 
@@ -484,14 +520,28 @@ do
 	end
 end
 
+function countString(haystack, needle, plain)
+	local count = 0
+	local i     = 0
+	local _
+
+	while true do
+		_, i = haystack:find(needle, i+1, plain)
+		if not i then  return count  end
+
+		count = count+1
+	end
+end
+
 --==============================================================
 --= Preprocessor Script ========================================
 --==============================================================
 
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
+math.randomseed(os.time()) -- In case math.random() is used anywhere.
+math.random() -- Must kickstart...
 
--- Parse script arguments.
 local processOptions     = true
 local messageHandlerPath = ""
 local paths              = {}
@@ -509,8 +559,14 @@ for i = 1, select("#", ...) do
 		elseif arg == "--silent" then
 			silent = true
 
+		elseif arg == "--linenumbers" then
+			addLineNumbers = true
+
+		elseif arg == "--debug" then
+			isDebug = true
+
 		else
-			errorline("Unknown")
+			errorline("Unknown option '"..arg.."'.")
 		end
 
 	else
@@ -522,25 +578,6 @@ local header = "= LuaPreprocess v"..VERSION..os.date", %Y-%m-%d %H:%M:%S ="
 printfNoise(("="):rep(#header))
 printfNoise("%s", header)
 printfNoise(("="):rep(#header))
-
-math.randomseed(os.time()) -- Just in case math.random() is used anywhere.
-math.random() -- Must kickstart...
-
--- Load message handler.
-local messageHandler = nil
-if messageHandlerPath ~= "" then
-	local chunk, err = loadfile(messageHandlerPath)
-	if not chunk then
-		errorline("Could not load message handler: "..err)
-	end
-
-	messageHandler = chunk()
-	if type(messageHandler) ~= "function" then
-		errorline(messageHandlerPath..": File did not return a message handler function.")
-	end
-end
-
--- Begin the real work!
 
 
 
@@ -578,7 +615,20 @@ end
 
 
 
-if messageHandler then  messageHandler("init", paths)  end
+-- Load message handler.
+local messageHandler = nil
+if messageHandlerPath ~= "" then
+	local chunk, err = loadfile(messageHandlerPath)
+	if not chunk then
+		errorline("Could not load message handler: "..err)
+	end
+
+	messageHandler = chunk()
+	if type(messageHandler) ~= "function" then
+		errorline(messageHandlerPath..": File did not return a message handler function.")
+	end
+	messageHandler("init", paths)
+end
 
 if not paths[1] then
 	errorline("No path(s) specified.")
@@ -606,7 +656,7 @@ for _, path in ipairs(paths) do
 
 	local tokens = tokensizeLua(luaUnprocessed, path)
 
-	-- Create metaprogram.
+	-- Generate metaprogram.
 	--==============================================================
 
 	local startOfLine     = true
@@ -614,15 +664,25 @@ for _, path in ipairs(paths) do
 	local tokensToProcess = {}
 	local metaParts       = {}
 
+	local tokenIndex = 1
+	local ln         = 0
+
 	local function outputTokens(tokens)
-		local lua     = concatTokens(tokens)
-		local luaMeta = F("outputLua(%q)\n", lua)
-		-- luaMeta = luaMeta:gsub("\\\n", "\\n") -- Debug.
+		if not tokens[1] then  return  end
+
+		local lua = concatTokens(tokens, ln)
+		local luaMeta
+
+		if isDebug then
+			luaMeta = F("outputLua(%q)\n", lua):gsub("\\\n", "\\n")
+		else
+			luaMeta = F("outputLua%q", lua)
+		end
 
 		table.insert(metaParts, luaMeta)
+		ln = tokens[#tokens].line
 	end
 
-	local tokenIndex = 1
 	while true do
 		local tok = tokens[tokenIndex]
 		if not tok then  break  end
@@ -649,87 +709,86 @@ for _, path in ipairs(paths) do
 
 		-- Raw code.
 		--------------------------------
-		else
-			-- Potential start of meta line. (Must be at the start of the line, possibly after whitespace.)
-			if tok.type == "whitespace" or (tok.type == "comment" and not tok.long) then
-				table.insert(tokensToProcess, tok)
 
-				if not (tok.type == "whitespace" and not tok.value:find("\n", 1, true)) then
-					startOfLine = true
-				end
+		-- Potential start of meta line. (Must be at the start of the line, possibly after whitespace.)
+		elseif tok.type == "whitespace" or (tok.type == "comment" and not tok.long) then
+			table.insert(tokensToProcess, tok)
 
-			-- Meta block. Examples:
-			-- !( function sum(a, b) return a+b; end )
-			-- local text = !("Hello, mr. "..getName())
-			elseif
-				tok.type == "pp_entry"
-				and tokens[tokenIndex+1]
-				and tokens[tokenIndex+1].type == "punctuation"
-				and tokens[tokenIndex+1].value == "("
-			then
-				local startPos = tok.position
-				tokenIndex = tokenIndex+2 -- Jump past "!(".
-
-				if tokensToProcess[1] then
-					outputTokens(tokensToProcess)
-					tokensToProcess = {}
-				end
-
-				local tokensInBlock = {}
-				local depth         = 1
-
-				while true do
-					tok = tokens[tokenIndex]
-					if not tok then
-						errorInFile(luaUnprocessed, path, startPos, "Parser", "Missing end of meta block.")
-					end
-
-					if tok.type == "punctuation" and tok.value == "(" then
-						depth = depth+1
-
-					elseif tok.type == "punctuation" and tok.value == ")" then
-						depth = depth-1
-						if depth == 0 then  break  end
-
-					elseif tok.type == "pp_entry" then
-						errorInFile(luaUnprocessed, path, tok.position, "Parser", "Preprocessor token inside metaprogram.")
-					end
-
-					table.insert(tokensInBlock, tok)
-					tokenIndex = tokenIndex+1
-				end
-
-				local metaBlock = concatTokens(tokensInBlock)
-
-				if loadstring("return("..metaBlock..")") then
-					table.insert(metaParts, "outputValue(")
-					table.insert(metaParts, metaBlock)
-					table.insert(metaParts, ")\n")
-				else
-					table.insert(metaParts, metaBlock)
-					table.insert(metaParts, "\n")
-				end
-
-			-- Meta line. Example:
-			-- !for i = 1, 3 do
-			--    print("Marco. Polo.")
-			-- !end
-			elseif startOfLine and tok.type == "pp_entry" then
-				isMeta      = true
-				startOfLine = false
-
-				if tokensToProcess[1] then
-					outputTokens(tokensToProcess)
-					tokensToProcess = {}
-				end
-
-			elseif tok.type == "pp_entry" then
-				errorInFile(luaUnprocessed, path, tok.position, "Parser", "Unexpected preprocessor token.")
-
-			else
-				table.insert(tokensToProcess, tok)
-				startOfLine = false
+			if not (tok.type == "whitespace" and not tok.value:find("\n", 1, true)) then
+				startOfLine = true
 			end
+
+		-- Meta block. Examples:
+		-- !( function sum(a, b) return a+b; end )
+		-- local text = !("Hello, mr. "..getName())
+		elseif
+			tok.type == "pp_entry"
+			and tokens[tokenIndex+1]
+			and tokens[tokenIndex+1].type == "punctuation"
+			and tokens[tokenIndex+1].value == "("
+		then
+			local startPos = tok.position
+			tokenIndex = tokenIndex+2 -- Jump past "!(".
+
+			if tokensToProcess[1] then
+				outputTokens(tokensToProcess)
+				tokensToProcess = {}
+			end
+
+			local tokensInBlock = {}
+			local depth         = 1
+
+			while true do
+				tok = tokens[tokenIndex]
+				if not tok then
+					errorInFile(luaUnprocessed, path, startPos, "Parser", "Missing end of meta block.")
+				end
+
+				if tok.type == "punctuation" and tok.value == "(" then
+					depth = depth+1
+
+				elseif tok.type == "punctuation" and tok.value == ")" then
+					depth = depth-1
+					if depth == 0 then  break  end
+
+				elseif tok.type == "pp_entry" then
+					errorInFile(luaUnprocessed, path, tok.position, "Parser", "Preprocessor token inside metaprogram.")
+				end
+
+				table.insert(tokensInBlock, tok)
+				tokenIndex = tokenIndex+1
+			end
+
+			local metaBlock = concatTokens(tokensInBlock)
+
+			if loadstring("return("..metaBlock..")") then
+				table.insert(metaParts, "outputValue(")
+				table.insert(metaParts, metaBlock)
+				table.insert(metaParts, ")\n")
+			else
+				table.insert(metaParts, metaBlock)
+				table.insert(metaParts, "\n")
+			end
+
+		-- Meta line. Example:
+		-- !for i = 1, 3 do
+		--    print("Marco. Polo.")
+		-- !end
+		elseif startOfLine and tok.type == "pp_entry" then
+			isMeta      = true
+			startOfLine = false
+
+			if tokensToProcess[1] then
+				outputTokens(tokensToProcess)
+				tokensToProcess = {}
+			end
+
+		elseif tok.type == "pp_entry" then
+			errorInFile(luaUnprocessed, path, tok.position, "Parser", "Unexpected preprocessor token.")
+
+		else
+			table.insert(tokensToProcess, tok)
+			startOfLine = false
 		end
 		--------------------------------
 
@@ -781,17 +840,30 @@ for _, path in ipairs(paths) do
 			local vType = type(v)
 
 			if vType == "table" then
+				local first = true
+				table.insert(luaParts, "{")
+
 				for k, item in pairs(v) do
 					if type(k) == "table" then
 						local ln = debug.getinfo(level, "l").currentline
 						errorOnLine(pathMeta, ln, "MetaProgram", "Table keys cannot be tables.")
 					end
-					table.insert(luaParts, "[")
-					doOutputValue(k)
-					table.insert(luaParts, "]=")
+
+					if not first then  table.insert(luaParts, ",")  end
+					first = false
+
+					if type(k) == "string" and k:find"^[%a_][%w_]*$" then
+						table.insert(luaParts, k)
+						table.insert(luaParts, "=")
+					else
+						table.insert(luaParts, "[")
+						doOutputValue(k)
+						table.insert(luaParts, "]=")
+					end
 					doOutputValue(item)
-					table.insert(luaParts, ",")
 				end
+
+				table.insert(luaParts, "}")
 
 			elseif vType == "string" then
 				table.insert(luaParts, (F("%q", v):gsub("\\\n", "\\n")))
@@ -862,7 +934,9 @@ for _, path in ipairs(paths) do
 		end
 	end)
 
-	os.remove(pathMeta)
+	if not isDebug then
+		os.remove(pathMeta)
+	end
 
 	local lua = table.concat(luaParts)
 	--[[ :PrintCode
