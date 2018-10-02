@@ -1,2 +1,6 @@
+*.sublime-*
+
 /test.*
 !/test.lua2p
+
+/Local/

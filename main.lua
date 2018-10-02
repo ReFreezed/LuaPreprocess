@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  Lua preprocessor
+--=  LuaPreprocess
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -21,6 +21,12 @@
 
 		--linenumbers
 			Add comments with line numbers to output.
+
+		--saveinfo=pathToSaveProcessingInfoTo
+			Processing information includes what files had any preprocessor
+			code in them, and things like that. The format of the file is a
+			lua module that returns a table. Search this file for 'SavedInfo'
+			to see what information is saved.
 
 		--silent
 			Only print errors to the console.
@@ -67,8 +73,8 @@
 	-- Beware in preprocessor blocks that only call a single function!
 	!(func())  -- This will bee seen as an inline block and output whatever value func() returns (nil if nothing) as a literal.
 	!(func();) -- If that's not wanted then a trailing ";" will prevent that. This line won't output anything by itself.
-	-- When the full metaprogram is generated, "!(func())" is translated into "outputValue(func())"
-	-- while "!(func();)" is translated into simply "func();", because "outputValue(func();)" would be invalid Lua code.
+	-- When the full metaprogram is generated, "!(func())" translates into "outputValue(func())"
+	-- while "!(func();)" simply translates into "func();", because "outputValue(func();)" would be invalid Lua code.
 
 ----------------------------------------------------------------
 
@@ -113,6 +119,7 @@
 			outputPath: Where the output of the metaprogram was written.
 
 --============================================================]]
+local startTime = os.time()
 
 local VERSION = "1.0.0"
 
@@ -143,9 +150,10 @@ local ESCAPE_SEQUENCES = {
 
 local ERROR_UNFINISHED_VALUE = 1
 
-local addLineNumbers = false
-local isDebug        = false
-local silent         = false
+local addLineNumbers     = false
+local isDebug            = false
+local processingInfoPath = ""
+local silent             = false
 
 --==============================================================
 --= Local Functions ============================================
@@ -158,7 +166,8 @@ local F
 local getFileContents, fileExists
 local parseStringlike
 local printf, printfNoise, printTokens
-local tokensizeLua
+local serialize
+local tokensize
 
 F = string.format
 
@@ -271,9 +280,9 @@ function parseStringlike(s, ptr)
 	return tok, ptr
 end
 
--- tokens = tokensizeLua( string, filepath )
+-- tokens = tokensize( lua, filepath )
 -- token  = { type=tokenType, line=lineNumber, position=startBytePosition, representation=representation, value=value }
-function tokensizeLua(s, path)
+function tokensize(s, path)
 	local tokens = {}
 	local ptr    = 1
 	local ln     = 1
@@ -533,6 +542,95 @@ function countString(haystack, needle, plain)
 	end
 end
 
+-- success, errorMessage = serialize( buffer, value )
+function serialize(buffer, v)
+	local vType = type(v)
+
+	if vType == "table" then
+		local first = true
+		table.insert(buffer, "{")
+
+		local indices = {}
+		for i, item in ipairs(v) do
+			if not first then  table.insert(buffer, ",")  end
+			first = false
+
+			local ok, err = serialize(buffer, item)
+			if not ok then  return false, err  end
+
+			indices[i] = true
+		end
+
+		local keys = {}
+		for k, item in pairs(v) do
+			if indices[k] then
+				-- void
+			elseif type(k) == "table" then
+				return false, "Table keys cannot be tables."
+			else
+				table.insert(keys, k)
+			end
+		end
+
+		table.sort(keys, function(a, b)
+			return tostring(a) < tostring(b)
+		end)
+
+		for _, k in ipairs(keys) do
+			local item = v[k]
+
+			if not first then  table.insert(buffer, ",")  end
+			first = false
+
+			if type(k) == "string" and k:find"^[%a_][%w_]*$" then
+				table.insert(buffer, k)
+				table.insert(buffer, "=")
+
+			else
+				table.insert(buffer, "[")
+
+				local ok, err = serialize(buffer, k)
+				if not ok then  return false, err  end
+
+				table.insert(buffer, "]=")
+			end
+
+			local ok, err = serialize(buffer, item)
+			if not ok then  return false, err  end
+		end
+
+		table.insert(buffer, "}")
+
+	elseif vType == "string" then
+		local s = F("%q", v)
+		if isDebug then
+			s = s:gsub("\\\n", "\\n")
+		end
+		table.insert(buffer, s)
+
+	elseif v == math.huge then
+		table.insert(buffer, "math.huge")
+	elseif v == -math.huge then
+		table.insert(buffer, " -math.huge") -- The space prevents an accidental comment if a "-" is right before.
+	elseif v ~= v then
+		table.insert(buffer, "0/0") -- NaN.
+	elseif v == 0 then
+		table.insert(buffer, "0") -- In case it's actually -0 for some reason, which would be silly to output.
+	elseif vType == "number" then
+		if v < 0 then
+			table.insert(buffer, " ") -- The space prevents an accidental comment if a "-" is right before.
+		end
+		table.insert(buffer, tostring(v)) -- (I'm not sure what precision tostring() uses for numbers. Maybe we should use string.format() instead.)
+
+	elseif vType == "boolean" or v == nil then
+		table.insert(buffer, tostring(v))
+
+	else
+		return false, F("Cannot serialize value of type '%s'. (%s)", vType, tostring(v))
+	end
+	return true
+end
+
 --==============================================================
 --= Preprocessor Script ========================================
 --==============================================================
@@ -565,6 +663,9 @@ for i = 1, select("#", ...) do
 		elseif arg == "--debug" then
 			isDebug = true
 
+		elseif arg:find"^%-%-saveinfo=" then
+			processingInfoPath = arg:match"^%-%-saveinfo=(.*)$"
+
 		else
 			errorline("Unknown option '"..arg.."'.")
 		end
@@ -574,7 +675,7 @@ for i = 1, select("#", ...) do
 	end
 end
 
-local header = "= LuaPreprocess v"..VERSION..os.date", %Y-%m-%d %H:%M:%S ="
+local header = "= LuaPreprocess v"..VERSION..os.date(", %Y-%m-%d %H:%M:%S =", startTime)
 printfNoise(("="):rep(#header))
 printfNoise("%s", header)
 printfNoise(("="):rep(#header))
@@ -639,6 +740,12 @@ for _, path in ipairs(paths) do
 	end
 end
 
+-- :SavedInfo
+local processingInfo = {
+	date  = os.date("%Y-%m-%d %H:%M:%S", startTime),
+	files = {},
+}
+
 for _, path in ipairs(paths) do
 	printfNoise("Processing '%s'...", path)
 
@@ -654,10 +761,19 @@ for _, path in ipairs(paths) do
 		luaUnprocessed = rest
 	end
 
-	local tokens = tokensizeLua(luaUnprocessed, path)
+	local tokens = tokensize(luaUnprocessed, path)
 
 	-- Generate metaprogram.
 	--==============================================================
+
+	local hasPreprocessorCode = false
+
+	for _, tok in ipairs(tokens) do
+		if tok.type == "pp_entry" then
+			hasPreprocessorCode = true
+			break
+		end
+	end
 
 	local startOfLine     = true
 	local isMeta          = false
@@ -833,66 +949,11 @@ for _, path in ipairs(paths) do
 	--   Output a value, like a string or table, as a literal.
 	--   outputValue( value )
 	function metaEnv.outputValue(v)
-		local level = 2
-
-		local function doOutputValue(v)
-			level = level+1
-			local vType = type(v)
-
-			if vType == "table" then
-				local first = true
-				table.insert(luaParts, "{")
-
-				for k, item in pairs(v) do
-					if type(k) == "table" then
-						local ln = debug.getinfo(level, "l").currentline
-						errorOnLine(pathMeta, ln, "MetaProgram", "Table keys cannot be tables.")
-					end
-
-					if not first then  table.insert(luaParts, ",")  end
-					first = false
-
-					if type(k) == "string" and k:find"^[%a_][%w_]*$" then
-						table.insert(luaParts, k)
-						table.insert(luaParts, "=")
-					else
-						table.insert(luaParts, "[")
-						doOutputValue(k)
-						table.insert(luaParts, "]=")
-					end
-					doOutputValue(item)
-				end
-
-				table.insert(luaParts, "}")
-
-			elseif vType == "string" then
-				table.insert(luaParts, (F("%q", v):gsub("\\\n", "\\n")))
-
-			elseif v == math.huge then
-				table.insert(luaParts, "math.huge")
-			elseif v == -math.huge then
-				table.insert(luaParts, " -math.huge") -- Prevent an accidental comment if there's a "-" right before.
-			elseif v ~= v then
-				table.insert(luaParts, "0/0") -- NaN.
-			elseif v == 0 then
-				table.insert(luaParts, "0") -- In case it's actually -0 for some reason, which would be silly to output.
-			elseif vType == "number" then
-				if v < 0 then
-					table.insert(luaParts, " ") -- Prevent an accidental comment if there's a "-" right before.
-				end
-				table.insert(luaParts, tostring(v)) -- (I'm not sure what precision tostring() uses for numbers. Maybe we should use string.format() instead.)
-
-			elseif vType == "boolean" or v == nil then
-				table.insert(luaParts, tostring(v))
-
-			else
-				local ln = debug.getinfo(level, "l").currentline
-				errorOnLine(pathMeta, ln, "MetaProgram", "Cannot output value of type '%s'. (%s)", vType, tostring(v))
-			end
-			level = level-1
+		local ok, err = serialize(luaParts, v)
+		if not ok then
+			local ln = debug.getinfo(2, "l").currentline
+			errorOnLine(pathMeta, ln, "MetaProgram", "%s", err)
 		end
-
-		doOutputValue(v)
 	end
 
 	-- outputLua()
@@ -973,8 +1034,30 @@ for _, path in ipairs(paths) do
 
 	if messageHandler then  messageHandler("filedone", path, pathOut)  end
 
+	if processingInfoPath ~= "" then
+
+		-- :SavedInfo
+		table.insert(processingInfo.files, {
+			path                = path,
+			hasPreprocessorCode = hasPreprocessorCode,
+		})
+
+	end
+
 	printfNoise("Processing '%s'... done!", path)
 	printfNoise(("-"):rep(#header))
+end
+
+if processingInfoPath ~= "" then
+	printfNoise("Saving processing info to '%s'.", processingInfoPath)
+
+	local luaParts = {"return"}
+	assert(serialize(luaParts, processingInfo))
+	local lua = table.concat(luaParts)
+
+	local file = assert(io.open(processingInfoPath, "wb"))
+	file:write(lua)
+	file:close()
 end
 
 printfNoise("All done!")
