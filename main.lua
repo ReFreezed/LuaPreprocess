@@ -20,7 +20,12 @@
 			first argument. (See 'Handler messages')
 
 		--linenumbers
-			Add comments with line numbers to output.
+			Add comments with line numbers to the output.
+
+		--outputextension=fileExtension
+			Specify what file extension generated files should have. The
+			default is "lua". If any input files end in .lua then you must
+			specify another file extension.
 
 		--saveinfo=pathToSaveProcessingInfoTo
 			Processing information includes what files had any preprocessor
@@ -152,6 +157,7 @@ local ERROR_UNFINISHED_VALUE = 1
 
 local addLineNumbers     = false
 local isDebug            = false
+local outputExtension    = "lua"
 local processingInfoPath = ""
 local silent             = false
 
@@ -162,6 +168,7 @@ local assertarg
 local concatTokens
 local countString
 local error, errorline, errorOnLine, errorInFile
+local escapePattern
 local F
 local getFileContents, fileExists
 local parseStringlike
@@ -631,6 +638,10 @@ function serialize(buffer, v)
 	return true
 end
 
+function escapePattern(s)
+	return (s:gsub("[-+*^?$.%%()[%]]", "%%%0"))
+end
+
 --==============================================================
 --= Preprocessor Script ========================================
 --==============================================================
@@ -665,6 +676,9 @@ for i = 1, select("#", ...) do
 
 		elseif arg:find"^%-%-saveinfo=" then
 			processingInfoPath = arg:match"^%-%-saveinfo=(.*)$"
+
+		elseif arg:find"^%-%-outputextension=" then
+			outputExtension = arg:match"^%-%-outputextension=(.*)$"
 
 		else
 			errorline("Unknown option '"..arg.."'.")
@@ -734,9 +748,11 @@ end
 if not paths[1] then
 	errorline("No path(s) specified.")
 end
+
+local pat = "%."..escapePattern(outputExtension).."$"
 for _, path in ipairs(paths) do
-	if path:find"%.lua$" then
-		errorline("Invalid path '"..path.."'. (Paths must not end with .lua as those will be used as output paths.)")
+	if path:find(pat) then
+		errorline("Invalid path '"..path.."'. (Paths must not end with ."..outputExtension.." as those will be used as output paths. You can change extension with --outputextension.)")
 	end
 end
 
@@ -1019,7 +1035,7 @@ for _, path in ipairs(paths) do
 	-- Write output file.
 	----------------------------------------------------------------
 
-	local pathOut = path:gsub("%.%w+$", "")..".lua"
+	local pathOut = path:gsub("%.%w+$", "").."."..outputExtension
 	local file    = assert(io.open(pathOut, "wb"))
 	file:write(specialFirstLine or "")
 	file:write(lua)
