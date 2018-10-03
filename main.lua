@@ -75,6 +75,9 @@
 	-- Preprocessor inline block. (Expression that returns a value.)
 	local text = !("The dog said: "..getDogText())
 
+	-- Preprocessor inline block variant. (Expression that returns a Lua string.)
+	_G.!!("myRandomGlobal"..math.random(5)) = 99
+
 	-- Beware in preprocessor blocks that only call a single function!
 	!(func())  -- This will bee seen as an inline block and output whatever value func() returns (nil if nothing) as a literal.
 	!(func();) -- If that's not wanted then a trailing ";" will prevent that. This line won't output anything by itself.
@@ -228,12 +231,12 @@ function errorInFile(contents, path, ptr, agent, s, ...)
 
 	if agent then
 		printf(
-			"Error @ %s:%d: [%s] %s\n> \n> %s\n> %s^\n>",
+			"Error @ %s:%d: [%s] %s\n>\n> %s\n> %s^\n>",
 			path, ln, agent, s:format(...), lastLine, ("-"):rep(col-1)
 		)
 	else
 		printf(
-			"Error @ %s:%d: %s\n> \n> %s\n> %s^\n>",
+			"Error @ %s:%d: %s\n>\n> %s\n> %s^\n>",
 			path, ln, s:format(...), lastLine, ("-"):rep(col-1)
 		)
 	end
@@ -441,8 +444,9 @@ function tokensize(s, path)
 
 		-- Preprocessor: Entry.
 		elseif s:find("^!", ptr) then
-			local repr = s:sub(ptr, ptr)
-			tok = {type="pp_entry", representation=repr, value=repr}
+			local double = s:find("^!", ptr+1) ~= nil
+			local repr   = s:sub(ptr, ptr+(double and 1 or 0))
+			tok = {type="pp_entry", representation=repr, value=repr, double=double}
 			ptr = ptr+#repr
 
 		else
@@ -529,9 +533,9 @@ do
 
 	function assertarg(fNameOrArgNum, ...)
 		if type(fNameOrArgNum) == "string" then
-			return _assertarg(fNameOrArgNum, ...)
+			return (_assertarg(fNameOrArgNum, ...))
 		else
-			return _assertarg(nil, fNameOrArgNum, ...)
+			return (_assertarg(nil, fNameOrArgNum, ...))
 		end
 	end
 end
@@ -778,6 +782,7 @@ for _, path in ipairs(paths) do
 	end
 
 	local tokens = tokensize(luaUnprocessed, path)
+	-- printTokens(tokens)
 
 	-- Generate metaprogram.
 	--==============================================================
@@ -853,14 +858,16 @@ for _, path in ipairs(paths) do
 		-- Meta block. Examples:
 		-- !( function sum(a, b) return a+b; end )
 		-- local text = !("Hello, mr. "..getName())
+		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
 		elseif
 			tok.type == "pp_entry"
 			and tokens[tokenIndex+1]
 			and tokens[tokenIndex+1].type == "punctuation"
 			and tokens[tokenIndex+1].value == "("
 		then
-			local startPos = tok.position
-			tokenIndex = tokenIndex+2 -- Jump past "!(".
+			local startPos    = tok.position
+			local doOutputLua = tok.double
+			tokenIndex = tokenIndex+2 -- Jump past "!(" or "!!(".
 
 			if tokensToProcess[1] then
 				outputTokens(tokensToProcess)
@@ -894,9 +901,12 @@ for _, path in ipairs(paths) do
 			local metaBlock = concatTokens(tokensInBlock)
 
 			if loadstring("return("..metaBlock..")") then
-				table.insert(metaParts, "outputValue(")
+				table.insert(metaParts, (doOutputLua and "outputLua(" or "outputValue("))
 				table.insert(metaParts, metaBlock)
 				table.insert(metaParts, ")\n")
+			elseif doOutputLua then
+				-- We could do something other than error here. Room for more functionality.
+				errorInFile(luaUnprocessed, path, startPos+3, "Parser", "Meta block variant does not contain a valid expression that results in a value.")
 			else
 				table.insert(metaParts, metaBlock)
 				table.insert(metaParts, "\n")
@@ -904,9 +914,11 @@ for _, path in ipairs(paths) do
 
 		-- Meta line. Example:
 		-- !for i = 1, 3 do
-		--    print("Marco. Polo.")
+		--    print("Marco? Polo!")
 		-- !end
-		elseif startOfLine and tok.type == "pp_entry" then
+		elseif startOfLine and tok.type == "pp_entry" and not tok.double then
+			-- We could do something unique if tok.double is true. Room for more functionality.
+
 			isMeta      = true
 			startOfLine = false
 
@@ -916,7 +928,11 @@ for _, path in ipairs(paths) do
 			end
 
 		elseif tok.type == "pp_entry" then
-			errorInFile(luaUnprocessed, path, tok.position, "Parser", "Unexpected preprocessor token.")
+			if tok.double then
+				errorInFile(luaUnprocessed, path, tok.position, "Parser", "Unexpected double preprocessor token.")
+			else
+				errorInFile(luaUnprocessed, path, tok.position, "Parser", "Unexpected preprocessor token.")
+			end
 
 		else
 			table.insert(tokensToProcess, tok)
@@ -993,9 +1009,9 @@ for _, path in ipairs(paths) do
 	file:write(luaMeta)
 	file:close()
 
-	local chunk, err = loadstring(luaMeta, "")
+	local chunk, err = loadstring(luaMeta, pathMeta)
 	if not chunk then
-		local ln, err = err:match'^%[string ""%]:(%d+): (.*)'
+		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
 		errorOnLine(pathMeta, tonumber(ln), nil, "%s", err)
 	end
 	setfenv(chunk, metaEnv)
@@ -1003,9 +1019,9 @@ for _, path in ipairs(paths) do
 	if messageHandler then  messageHandler("beforemeta", path, metaEnv)  end
 
 	xpcall(chunk, function(err0)
-		local ln, err = err0:match'^%[string ""%]:(%d+): (.*)'
+		local path, ln, err = err0:match'^%[string "(.-)"%]:(%d+): (.*)'
 		if err then
-			errorOnLine(pathMeta, tonumber(ln), nil, "%s", err)
+			errorOnLine(path, tonumber(ln), nil, "%s", err)
 		else
 			error(err0, 2)
 		end
@@ -1042,9 +1058,9 @@ for _, path in ipairs(paths) do
 	file:close()
 
 	-- Test if the output is valid Lua.
-	local chunk, err = loadstring(lua, "")
+	local chunk, err = loadstring(lua, pathOut)
 	if not chunk then
-		local ln, err = err:match'^%[string ""%]:(%d+): (.*)'
+		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
 		errorOnLine(pathOut, tonumber(ln), nil, "%s", err)
 	end
 

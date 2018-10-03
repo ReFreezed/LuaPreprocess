@@ -40,6 +40,9 @@ end
 
 -- Preprocessor inline block. (Expression that returns a value.)
 local text = !("The dog said: "..getDogText())
+
+-- Preprocessor inline block variant. (Expression that returns a Lua string.)
+_G.!!("myRandomGlobal"..math.random(5)) = 99
 ```
 
 

@@ -30,4 +30,6 @@ end
 local c   = !(100+sum(10, 5))
 local str = !(run"testInclude.lua")
 
+_G.!!("global"..math.random(5)) = 99
+
 print("The end.")
