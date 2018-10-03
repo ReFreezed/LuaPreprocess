@@ -174,6 +174,7 @@ local error, errorline, errorOnLine, errorInFile
 local escapePattern
 local F
 local getFileContents, fileExists
+local maybeOutputLineNumber
 local parseStringlike
 local printf, printfNoise, printTokens
 local serialize
@@ -469,11 +470,8 @@ function concatTokens(tokens, lastLn)
 	local parts = {}
 
 	if addLineNumbers then
-		for i, tok in ipairs(tokens) do
-			if tok.line ~= lastLn then
-				table.insert(parts, "--[[@"..tok.line.."]]")
-				lastLn = tok.line
-			end
+		for _, tok in ipairs(tokens) do
+			lastLn = maybeOutputLineNumber(parts, tok, lastLn)
 			table.insert(parts, tok.representation)
 		end
 
@@ -644,6 +642,17 @@ end
 
 function escapePattern(s)
 	return (s:gsub("[-+*^?$.%%()[%]]", "%%%0"))
+end
+
+function maybeOutputLineNumber(parts, tok, lastLn, fromMetaToOutput)
+	if tok.line == lastLn or tok.type == "whitespace" or tok.type == "comment" then  return lastLn  end
+
+	-- if fromMetaToOutput then
+	-- 	table.insert(parts, 'outputLua"--[[@'..tok.line..']]"\n')
+	-- else
+		table.insert(parts, "--[[@"..tok.line.."]]")
+	-- end
+	return tok.line
 end
 
 --==============================================================
@@ -865,6 +874,7 @@ for _, path in ipairs(paths) do
 			and tokens[tokenIndex+1].type == "punctuation"
 			and tokens[tokenIndex+1].value == "("
 		then
+			local startToken  = tok
 			local startPos    = tok.position
 			local doOutputLua = tok.double
 			tokenIndex = tokenIndex+2 -- Jump past "!(" or "!!(".
@@ -904,9 +914,11 @@ for _, path in ipairs(paths) do
 				table.insert(metaParts, (doOutputLua and "outputLua(" or "outputValue("))
 				table.insert(metaParts, metaBlock)
 				table.insert(metaParts, ")\n")
+
 			elseif doOutputLua then
 				-- We could do something other than error here. Room for more functionality.
 				errorInFile(luaUnprocessed, path, startPos+3, "Parser", "Meta block variant does not contain a valid expression that results in a value.")
+
 			else
 				table.insert(metaParts, metaBlock)
 				table.insert(metaParts, "\n")
