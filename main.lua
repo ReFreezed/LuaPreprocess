@@ -632,7 +632,7 @@ function serialize(buffer, v)
 			if not first then  table.insert(buffer, ",")  end
 			first = false
 
-			if type(k) == "string" and k:find"^[%a_][%w_]*$" then
+			if not KEYWORDS[k] and type(k) == "string" and k:find"^[%a_][%w_]*$" then
 				table.insert(buffer, k)
 				table.insert(buffer, "=")
 
