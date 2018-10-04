@@ -30,6 +30,13 @@ local n = 0
 	print("3 lines with print().")
 !end
 
+-- Extended preprocessor line. (Lines are consumed until brackets
+-- are balanced when the end of the line has been reached.)
+!newClass{
+	name  = "Entity",
+	props = {x=0, y=0},
+}
+
 -- Preprocessor block.
 !(
 local dogWord = "Woof "

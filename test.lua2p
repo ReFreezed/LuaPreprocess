@@ -1,24 +1,26 @@
 --[[
 	Blah.
 ]]
+-- Meta line.
 !print("The beginning.")
 
 local a = "a" -- Comment A.
 print(a)
 
+-- More meta lines.
 !local b = "b" -- Comment B.
 !print(b)
 
 a = a..!(b)..a -- Comment, string concat.
 
-!-- We be countin'!
-!for x = 1, 3 do
+!-- We be countin'! Also, this comment is so meta it's unbelievable.
+!for i = 1, 3 do
 	print("Aaaaand...")
-	print(!(x*2))
+	print(!(i*2))
 !end
 
-!x = --[[ Global variable and
-multiline comment here...]] true
+!local bool = --[[ Just a multiline
+comment here...]] true
 
 !(
 -- Meta block.
@@ -31,5 +33,15 @@ local c   = !(100+sum(10, 5))
 local str = !(run"testInclude.lua")
 
 _G.!!("global"..math.random(5)) = 99
+
+-- Extended meta line. (Balanced brackets.)
+!local arr = {
+	10,
+}; local z = (
+	100+(3^3)
+)+arr[
+	1
+]
+local z = !(z)
 
 print("The end.")

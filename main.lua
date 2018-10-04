@@ -64,6 +64,13 @@
 		print("3 lines with print().")
 	!end
 
+	-- Extended preprocessor line. (Lines are consumed until brackets
+	-- are balanced when the end of the line has been reached.)
+	!newClass{
+		name  = "Entity",
+		props = {x=0, y=0},
+	}
+
 	-- Preprocessor block.
 	!(
 	local dogWord = "Woof "
@@ -82,7 +89,9 @@
 	!(func())  -- This will bee seen as an inline block and output whatever value func() returns (nil if nothing) as a literal.
 	!(func();) -- If that's not wanted then a trailing ";" will prevent that. This line won't output anything by itself.
 	-- When the full metaprogram is generated, "!(func())" translates into "outputValue(func())"
-	-- while "!(func();)" simply translates into "func();", because "outputValue(func();)" would be invalid Lua code.
+	-- while "!(func();)" simply translates into "func();" (because "outputValue(func();)" would be invalid Lua code).
+	-- Though in this specific case a preprocessor line would be nicer:
+	!func()
 
 ----------------------------------------------------------------
 
@@ -90,10 +99,11 @@
 	- getFileContents, fileExists
 	- printf
 	- run
+	- toLua
 	Only in metaprogram:
 	- outputValue, outputLua
 
-	Search this file for 'MessageHandlerEnvironment' or 'MetaEnvironment' for more info.
+	Search this file for 'EnvironmentTable' for more info.
 
 ----------------------------------------------------------------
 
@@ -110,7 +120,6 @@
 		Arguments:
 			message: The name of this message.
 			path: What file is being processed.
-			metaprogramEnvironment: Environment table that is used for the metaprogram (a new table for each file).
 
 	"aftermeta"
 		Sent after a file's metaprogram has produced output (before the output is written to a file).
@@ -127,7 +136,9 @@
 			outputPath: Where the output of the metaprogram was written.
 
 --============================================================]]
-local startTime = os.time()
+
+local startTime  = os.time()
+local startClock = os.clock()
 
 local VERSION = "1.0.0"
 
@@ -141,6 +152,7 @@ local PUNCTUATION = {
 	"==", "~=", "<=", ">=", "<",  ">",  "=",
 	"(",  ")",  "{",  "}",  "[",  "]",
 	";",  ":",  ",",  ".",  "..", "...",
+	"!!", "!", -- For preprocessor.
 } for i, v in ipairs(PUNCTUATION) do  PUNCTUATION[v], PUNCTUATION[i] = true, nil  end
 
 local ESCAPE_SEQUENCES = {
@@ -164,23 +176,52 @@ local outputExtension    = "lua"
 local processingInfoPath = ""
 local silent             = false
 
+local remoteEnv          = nil
+
+local isRunningMeta      = false
+local currentMetaPath    = ""
+local outputFromMeta     = nil
+
 --==============================================================
 --= Local Functions ============================================
 --==============================================================
 local assertarg
 local concatTokens
+local copyTable
 local countString
 local error, errorline, errorOnLine, errorInFile
+local errorIfNotRunningMeta
 local escapePattern
-local F
+local F, formatInt, formatBytes
 local getFileContents, fileExists
+local isAny
 local maybeOutputLineNumber
+local pack
 local parseStringlike
 local printf, printfNoise, printTokens
-local serialize
+local serialize, serializeToString
 local tokensize
 
 F = string.format
+function formatInt(n)
+	return
+		F("%.0f", n)
+		:reverse()
+		:gsub("%d%d%d", "%0,")
+		:gsub(",$", ""):gsub(",%-$", "-")
+		:reverse()
+end
+function formatBytes(n)
+	if     n >= 1024*1024*1024 then
+		return F("%.2f GB", n/(1024*1024*1024))
+	elseif n >= 1024*1024 then
+		return F("%.2f MB", n/(1024*1024))
+	elseif n >= 1024 then
+		return F("%.2f kB", n/(1024))
+	else
+		return F("%d bytes", n)
+	end
+end
 
 function printf(s, ...)
 	print(s:format(...))
@@ -232,8 +273,8 @@ function errorInFile(contents, path, ptr, agent, s, ...)
 
 	if agent then
 		printf(
-			"Error @ %s:%d: [%s] %s\n>\n> %s\n> %s^\n>",
-			path, ln, agent, s:format(...), lastLine, ("-"):rep(col-1)
+			"Error @ %s:%d: [%s] %s\n>\n> %s\n>%s^\n>",
+			path, ln, agent, s:format(...), lastLine, ("-"):rep(col)
 		)
 	else
 		printf(
@@ -640,6 +681,16 @@ function serialize(buffer, v)
 	return true
 end
 
+-- luaString, errorMessage = serializeToString( value )
+function serializeToString(v)
+	local buffer = {}
+
+	local ok, err = serialize(buffer, v)
+	if not ok then  return nil, err  end
+
+	return table.concat(buffer)
+end
+
 function escapePattern(s)
 	return (s:gsub("[-+*^?$.%%()[%]]", "%%%0"))
 end
@@ -648,11 +699,64 @@ function maybeOutputLineNumber(parts, tok, lastLn, fromMetaToOutput)
 	if tok.line == lastLn or tok.type == "whitespace" or tok.type == "comment" then  return lastLn  end
 
 	-- if fromMetaToOutput then
-	-- 	table.insert(parts, 'outputLua"--[[@'..tok.line..']]"\n')
+	-- 	table.insert(parts, '__LUA"--[[@'..tok.line..']]"\n')
 	-- else
 		table.insert(parts, "--[[@"..tok.line.."]]")
 	-- end
 	return tok.line
+end
+
+function isAny(v, ...)
+	for i = 1, select("#", ...) do
+		if v == select(i, ...) then  return true  end
+	end
+	return false
+end
+
+function errorIfNotRunningMeta(level)
+	if not isRunningMeta then
+		error("No file is being processed.", 1+level)
+	end
+end
+
+-- copy = copyTable( table [, deep=false ] )
+do
+	local function deepCopy(t, copy, tableCopies)
+		for k, v in pairs(t) do
+			if type(v) == "table" then
+				local vCopy = tableCopies[v]
+
+				if vCopy then
+					copy[k] = vCopy
+				else
+					vCopy          = {}
+					tableCopies[v] = vCopy
+					copy[k]        = deepCopy(v, vCopy, tableCopies)
+				end
+
+			else
+				copy[k] = v
+			end
+		end
+		return copy
+	end
+
+	function copyTable(t, deep)
+		if deep then
+			return deepCopy(t, {}, {})
+		end
+
+		local copy = {}
+		for k, v in pairs(t) do  copy[k] = v  end
+
+		return copy
+	end
+end
+
+-- values = pack( value1, ... )
+-- values.n is the amount of values. Values can be nil.
+function pack(...)
+	return {n=select("#", ...), ...}
 end
 
 --==============================================================
@@ -709,47 +813,106 @@ printfNoise(("="):rep(#header))
 
 
 
--- :MessageHandlerEnvironment
--- The message handler simply shares our environment for now.
+-- :EnvironmentTable
+remoteEnv = copyTable(_G, true) -- Include all standard Lua stuff.
+remoteEnv._G = remoteEnv
 
 -- printf()
 --   Print a formatted string.
 --   printf( format, value1, ... )
-_G.printf = printf
+remoteEnv.printf = printf
 
--- contents, error = getFileContents()
+-- getFileContents()
 --   Get the entire contents of a binary file or text file. Return nil and a message on error.
---   getFileContents( path [, isTextFile=false ] )
-_G.getFileContents = getFileContents
+--   contents, error = getFileContents( path [, isTextFile=false ] )
+remoteEnv.getFileContents = getFileContents
 
--- bool = fileExists()
+-- fileExists()
 --   Check if a file exists.
---   fileExists( path )
-_G.fileExists = fileExists
+--   bool = fileExists( path )
+remoteEnv.fileExists = fileExists
+
+-- toLua()
+--   Convert a value to a Lua literal. Does not work with certain types, like functions or userdata.
+--   Returns nil and a message if an error ocurred.
+--   luaString, errorMessage = toLua( value )
+remoteEnv.toLua = serializeToString
 
 -- run()
 --   Execute a Lua file. Similar to dofile().
 --   returnValue1, ... = run( path )
-function _G.run(path)
+function remoteEnv.run(path)
 	assertarg(1, path, "string")
 
 	local chunk, err = loadfile(path)
 	if not chunk then
 		errorline(err)
 	end
+	setfenv(chunk, remoteEnv)
 
-	return chunk()
+	-- We want multiple return values while avoiding a tail call to preserve stack info.
+	local returnValues = pack(chunk())
+	return unpack(returnValues, 1, returnValues.n)
+end
+
+-- outputValue()
+--   Output one or more values, like strings or tables, as literals.
+--   outputValue( value1, ... )
+function remoteEnv.outputValue(...)
+	errorIfNotRunningMeta(2)
+
+	local argCount = select("#", ...)
+	if argCount == 0 then
+		error("No values to output.", 2)
+		-- local ln = debug.getinfo(2, "l").currentline
+		-- errorOnLine(currentMetaPath, ln, "MetaProgram", "No values to output.")
+	end
+
+	for i = 1, argCount do
+		local v = select(i, ...)
+		local ok, err = serialize(outputFromMeta, v)
+
+		if not ok then
+			local ln = debug.getinfo(2, "l").currentline
+			errorOnLine(currentMetaPath, ln, "MetaProgram", "%s", err)
+		end
+	end
+end
+
+-- outputLua()
+--   Output one or more strings as raw Lua code.
+--   outputLua( luaString1, ... )
+function remoteEnv.outputLua(...)
+	errorIfNotRunningMeta(2)
+
+	local argCount = select("#", ...)
+	if argCount == 0 then
+		error("No Lua code to output.", 2)
+		-- local ln = debug.getinfo(2, "l").currentline
+		-- errorOnLine(currentMetaPath, ln, "MetaProgram", "No Lua code to output.")
+	end
+
+	for i = 1, argCount do
+		local lua = select(i, ...)
+		assertarg(i, lua, "string")
+		table.insert(outputFromMeta, lua)
+	end
 end
 
 
 
+remoteEnv.__VAL = remoteEnv.outputValue
+remoteEnv.__LUA = remoteEnv.outputLua
+
 -- Load message handler.
 local messageHandler = nil
+
 if messageHandlerPath ~= "" then
 	local chunk, err = loadfile(messageHandlerPath)
 	if not chunk then
 		errorline("Could not load message handler: "..err)
 	end
+	setfenv(chunk, remoteEnv)
 
 	messageHandler = chunk()
 	if type(messageHandler) ~= "function" then
@@ -765,7 +928,10 @@ end
 local pat = "%."..escapePattern(outputExtension).."$"
 for _, path in ipairs(paths) do
 	if path:find(pat) then
-		errorline("Invalid path '"..path.."'. (Paths must not end with ."..outputExtension.." as those will be used as output paths. You can change extension with --outputextension.)")
+		errorline(
+			"Invalid path '"..path.."'. (Paths must not end with ."..outputExtension
+			.." as those will be used as output paths. You can change extension with --outputextension.)"
+		)
 	end
 end
 
@@ -775,7 +941,12 @@ local processingInfo = {
 	files = {},
 }
 
+local byteCount  = 0
+local lineCount  = 0
+local tokenCount = 0
+
 for _, path in ipairs(paths) do
+	local startClockForPath = os.clock()
 	printfNoise("Processing '%s'...", path)
 
 	local file, err = io.open(path, "rb")
@@ -785,12 +956,20 @@ for _, path in ipairs(paths) do
 	local luaUnprocessed = file:read"*a"
 	file:close()
 
+	byteCount = byteCount+#luaUnprocessed
+
 	local specialFirstLine, rest = luaUnprocessed:match"^(#[^\r\n]*\r?\n?)(.*)$"
 	if specialFirstLine then
 		luaUnprocessed = rest
 	end
 
 	local tokens = tokensize(luaUnprocessed, path)
+
+	if tokens[1] then
+		local lastToken = tokens[#tokens]
+		lineCount  = lineCount+lastToken.line+countString(lastToken.representation, "\n")
+		tokenCount = tokenCount+#tokens
+	end
 	-- printTokens(tokens)
 
 	-- Generate metaprogram.
@@ -805,13 +984,16 @@ for _, path in ipairs(paths) do
 		end
 	end
 
-	local startOfLine     = true
+	-- local startOfLine     = true
 	local isMeta          = false
+	local metaStartLine   = 0
+	local bracketBalance  = 0
+
 	local tokensToProcess = {}
 	local metaParts       = {}
 
-	local tokenIndex = 1
-	local ln         = 0
+	local tokenIndex      = 1
+	local ln              = 0
 
 	local function outputTokens(tokens)
 		if not tokens[1] then  return  end
@@ -820,9 +1002,9 @@ for _, path in ipairs(paths) do
 		local luaMeta
 
 		if isDebug then
-			luaMeta = F("outputLua(%q)\n", lua):gsub("\\\n", "\\n")
+			luaMeta = F("__LUA(%q)\n", lua):gsub("\\\n", "\\n")
 		else
-			luaMeta = F("outputLua%q", lua)
+			luaMeta = F("__LUA%q", lua)
 		end
 
 		table.insert(metaParts, luaMeta)
@@ -833,49 +1015,72 @@ for _, path in ipairs(paths) do
 		local tok = tokens[tokenIndex]
 		if not tok then  break  end
 
-		-- Meta code.
+		local tokType = tok.type
+
+		-- Meta line (or lines if extended).
 		--------------------------------
 		if isMeta then
-			if (tok.type == "whitespace" and tok.value:find("\n", 1, true)) or (tok.type == "comment" and not tok.long) then
-				startOfLine = true
-				isMeta      = false
+			if
+				(
+					(tokType == "whitespace" and tok.value:find("\n", 1, true))
+					or (tokType == "comment" and not tok.long)
+				)
+				and bracketBalance == 0
+			then
+				-- startOfLine     = true
+				isMeta          = false
+				bracketBalance = 0
 
-				if tok.type == "comment" then
+				if tokType == "comment" then
 					table.insert(metaParts, tok.representation)
 				else
 					table.insert(metaParts, "\n")
 				end
 
-			elseif tok.type == "pp_entry" then
-				errorInFile(luaUnprocessed, path, tok.position, "Parser", "Preprocessor token inside metaprogram.")
+			elseif tokType == "pp_entry" then
+				errorInFile(
+					luaUnprocessed, path, tok.position, "Parser",
+					"Preprocessor token inside metaprogram"
+						..(tok.line == metaStartLine and "." or " (starting at line %d)."),
+					metaStartLine
+				)
 
 			else
 				table.insert(metaParts, tok.representation)
+
+				if tokType == "punctuation" and isAny(tok.value, "(","{","[") then
+					bracketBalance = bracketBalance+1
+				elseif tokType == "punctuation" and isAny(tok.value, ")","}","]") then
+					bracketBalance = bracketBalance-1
+
+					if bracketBalance < 0 then
+						errorInFile(
+							luaUnprocessed, path, tok.position, "Parser",
+							"Unexpected '%s'. Preprocessor line"
+								..(tok.line == metaStartLine and "" or " (starting at line %d)")
+								.." has unbalanced brackets.",
+							tok.value, metaStartLine
+						)
+					end
+				end
 			end
 
-		-- Raw code.
+		-- Meta block or start of meta line.
 		--------------------------------
-
-		-- Potential start of meta line. (Must be at the start of the line, possibly after whitespace.)
-		elseif tok.type == "whitespace" or (tok.type == "comment" and not tok.long) then
-			table.insert(tokensToProcess, tok)
-
-			if not (tok.type == "whitespace" and not tok.value:find("\n", 1, true)) then
-				startOfLine = true
-			end
 
 		-- Meta block. Examples:
 		-- !( function sum(a, b) return a+b; end )
 		-- local text = !("Hello, mr. "..getName())
 		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
 		elseif
-			tok.type == "pp_entry"
+			tokType == "pp_entry"
 			and tokens[tokenIndex+1]
 			and tokens[tokenIndex+1].type == "punctuation"
 			and tokens[tokenIndex+1].value == "("
 		then
 			local startToken  = tok
 			local startPos    = tok.position
+			local startLine   = tok.line
 			local doOutputLua = tok.double
 			tokenIndex = tokenIndex+2 -- Jump past "!(" or "!!(".
 
@@ -890,18 +1095,24 @@ for _, path in ipairs(paths) do
 			while true do
 				tok = tokens[tokenIndex]
 				if not tok then
-					errorInFile(luaUnprocessed, path, startPos, "Parser", "Missing end of meta block.")
+					errorInFile(luaUnprocessed, path, startPos, "Parser", "Missing end of preprocessor block.")
 				end
 
-				if tok.type == "punctuation" and tok.value == "(" then
+				tokType = tok.type
+
+				if tokType == "punctuation" and tok.value == "(" then
 					depth = depth+1
 
-				elseif tok.type == "punctuation" and tok.value == ")" then
+				elseif tokType == "punctuation" and tok.value == ")" then
 					depth = depth-1
 					if depth == 0 then  break  end
 
-				elseif tok.type == "pp_entry" then
-					errorInFile(luaUnprocessed, path, tok.position, "Parser", "Preprocessor token inside metaprogram.")
+				elseif tokType == "pp_entry" then
+					errorInFile(
+						luaUnprocessed, path, tok.position, "Parser",
+						"Preprocessor token inside metaprogram"..(tok.line == startLine and "." or " (starting at line %d)."),
+						startLine
+					)
 				end
 
 				table.insert(tokensInBlock, tok)
@@ -911,13 +1122,16 @@ for _, path in ipairs(paths) do
 			local metaBlock = concatTokens(tokensInBlock)
 
 			if loadstring("return("..metaBlock..")") then
-				table.insert(metaParts, (doOutputLua and "outputLua(" or "outputValue("))
+				table.insert(metaParts, (doOutputLua and "__LUA(" or "__VAL("))
 				table.insert(metaParts, metaBlock)
 				table.insert(metaParts, ")\n")
 
 			elseif doOutputLua then
 				-- We could do something other than error here. Room for more functionality.
-				errorInFile(luaUnprocessed, path, startPos+3, "Parser", "Meta block variant does not contain a valid expression that results in a value.")
+				errorInFile(
+					luaUnprocessed, path, startPos+3, "Parser",
+					"Preprocessor block variant does not contain a valid expression that results in a value."
+				)
 
 			else
 				table.insert(metaParts, metaBlock)
@@ -928,27 +1142,45 @@ for _, path in ipairs(paths) do
 		-- !for i = 1, 3 do
 		--    print("Marco? Polo!")
 		-- !end
-		elseif startOfLine and tok.type == "pp_entry" and not tok.double then
-			-- We could do something unique if tok.double is true. Room for more functionality.
-
-			isMeta      = true
-			startOfLine = false
+		--
+		-- Extended meta line. Example:
+		-- !newClass{
+		--    name  = "Entity",
+		--    props = {x=0, y=0},
+		-- }
+		--
+		elseif tokType == "pp_entry" and not tok.double then
+		-- elseif startOfLine and tokType == "pp_entry" and not tok.double then
+			isMeta        = true
+			metaStartLine = tok.line
 
 			if tokensToProcess[1] then
 				outputTokens(tokensToProcess)
 				tokensToProcess = {}
 			end
 
-		elseif tok.type == "pp_entry" then
+		elseif tokType == "pp_entry" then
 			if tok.double then
 				errorInFile(luaUnprocessed, path, tok.position, "Parser", "Unexpected double preprocessor token.")
 			else
 				errorInFile(luaUnprocessed, path, tok.position, "Parser", "Unexpected preprocessor token.")
 			end
 
+		-- Non-meta.
+		--------------------------------
+
+		--[[ Potential start of meta line. (Must be at the start of the line, possibly after whitespace.)  UPDATE: No longer true.
+		elseif tokType == "whitespace" or (tokType == "comment" and not tok.long) then
+			table.insert(tokensToProcess, tok)
+
+			if not (tokType == "whitespace" and not tok.value:find("\n", 1, true)) then
+				startOfLine = true
+			end
+		--]]
+
 		else
 			table.insert(tokensToProcess, tok)
-			startOfLine = false
+			-- startOfLine = false
 		end
 		--------------------------------
 
@@ -963,53 +1195,6 @@ for _, path in ipairs(paths) do
 	-- Run metaprogram.
 	--==============================================================
 
-	local pathMeta = path:gsub("%.%w+$", "")..".meta.lua"
-	local luaParts = {}
-
-	local metaEnv = {}
-	for k, v in pairs(_G) do  metaEnv[k] = v  end
-	metaEnv._G = metaEnv
-
-
-
-	-- :MetaEnvironment
-
-	-- See 'MessageHandlerEnvironment' more info about these:
-	metaEnv.fileExists      = fileExists
-	metaEnv.getFileContents = getFileContents
-	metaEnv.printf          = printf
-
-	function metaEnv.run(path)
-		local chunk, err = loadfile(path)
-		if not chunk then
-			errorline(err)
-		end
-
-		setfenv(chunk, metaEnv)
-		return (chunk())
-	end
-
-	-- outputValue()
-	--   Output a value, like a string or table, as a literal.
-	--   outputValue( value )
-	function metaEnv.outputValue(v)
-		local ok, err = serialize(luaParts, v)
-		if not ok then
-			local ln = debug.getinfo(2, "l").currentline
-			errorOnLine(pathMeta, ln, "MetaProgram", "%s", err)
-		end
-	end
-
-	-- outputLua()
-	--   Output Lua code as-is.
-	--   outputLua( luaCode )
-	function metaEnv.outputLua(lua)
-		assertarg(1, lua, "string")
-		table.insert(luaParts, lua)
-	end
-
-
-
 	local luaMeta = table.concat(metaParts)
 	--[[ :PrintCode
 	print("=META===============================")
@@ -1017,19 +1202,23 @@ for _, path in ipairs(paths) do
 	print("====================================")
 	--]]
 
-	local file = assert(io.open(pathMeta, "wb"))
+	currentMetaPath = path:gsub("%.%w+$", "")..".meta.lua"
+	outputFromMeta  = {}
+
+	local file = assert(io.open(currentMetaPath, "wb"))
 	file:write(luaMeta)
 	file:close()
 
-	local chunk, err = loadstring(luaMeta, pathMeta)
+	local chunk, err = loadstring(luaMeta, currentMetaPath)
 	if not chunk then
 		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
-		errorOnLine(pathMeta, tonumber(ln), nil, "%s", err)
+		errorOnLine(currentMetaPath, tonumber(ln), nil, "%s", err)
 	end
-	setfenv(chunk, metaEnv)
+	setfenv(chunk, remoteEnv)
 
-	if messageHandler then  messageHandler("beforemeta", path, metaEnv)  end
+	if messageHandler then  messageHandler("beforemeta", path)  end
 
+	isRunningMeta  = true
 	xpcall(chunk, function(err0)
 		local path, ln, err = err0:match'^%[string "(.-)"%]:(%d+): (.*)'
 		if err then
@@ -1038,17 +1227,21 @@ for _, path in ipairs(paths) do
 			error(err0, 2)
 		end
 	end)
+	isRunningMeta = false
 
 	if not isDebug then
-		os.remove(pathMeta)
+		os.remove(currentMetaPath)
 	end
 
-	local lua = table.concat(luaParts)
+	local lua = table.concat(outputFromMeta)
 	--[[ :PrintCode
 	print("=OUTPUT=============================")
 	print(lua)
 	print("====================================")
 	--]]
+
+	currentMetaPath = ""
+	outputFromMeta  = nil
 
 	if messageHandler then
 		local luaModified = messageHandler("aftermeta", path, lua)
@@ -1088,7 +1281,7 @@ for _, path in ipairs(paths) do
 
 	end
 
-	printfNoise("Processing '%s'... done!", path)
+	printfNoise("Processing '%s' successful! (%.3fs)", path, os.clock()-startClockForPath)
 	printfNoise(("-"):rep(#header))
 end
 
@@ -1104,7 +1297,10 @@ if processingInfoPath ~= "" then
 	file:close()
 end
 
-printfNoise("All done!")
+printfNoise(
+	"All done! (%.3fs, %.0f lines, %.0f tokens, %s)",
+	os.clock()-startClock, lineCount, tokenCount, formatBytes(byteCount)
+)
 
 --[[!===========================================================
 
