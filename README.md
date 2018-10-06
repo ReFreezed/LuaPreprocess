@@ -50,6 +50,11 @@ local text = !("The dog said: "..getDogText())
 
 -- Preprocessor inline block variant. (Expression that returns a Lua string.)
 _G.!!("myRandomGlobal"..math.random(5)) = 99
+
+-- Dual code (both preprocessor line and final output).
+!!local partial = "Hello"
+local   whole   = partial .. !(partial..", world!")
+print(whole) -- HelloHello, world!
 ```
 
 

@@ -1,13 +1,13 @@
 --[[
 	Blah.
 ]]
--- Meta line.
+-- Preprocessor line.
 !print("The beginning.")
 
 local a = "a" -- Comment A.
 print(a)
 
--- More meta lines.
+-- More preprocessor lines.
 !local b = "b" -- Comment B.
 !print(b)
 
@@ -23,7 +23,7 @@ a = a..!(b)..a -- Comment, string concat.
 comment here...]] true
 
 !(
--- Meta block.
+-- Preprocessor block.
 local function sum(x, y)
 	return x+y
 end
@@ -34,7 +34,7 @@ local str = !(run"testInclude.lua")
 
 _G.!!("global"..math.random(5)) = 99
 
--- Extended meta line. (Balanced brackets.)
+-- Extended preprocessor line. (Balanced brackets.)
 !local arr = {
 	10,
 }; local z = (
@@ -43,5 +43,15 @@ _G.!!("global"..math.random(5)) = 99
 	1
 ]
 local z = !(z)
+
+-- Dual code (outputs both both preprocessor code and normal Lua).
+!!local alpha    = "[%a_]"
+!!local alphanum = "[%w_]"
+!!local num      = "%d"
+local   ident    = !(alpha..alphanum)
+
+local s = ":: 2 * hello5(){ ... }"
+print(s:match(ident)) -- "hello5"
+print(s:match(num))   -- "2"
 
 print("The end.")

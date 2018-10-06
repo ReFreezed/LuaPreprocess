@@ -85,6 +85,11 @@
 	-- Preprocessor inline block variant. (Expression that returns a Lua string.)
 	_G.!!("myRandomGlobal"..math.random(5)) = 99
 
+	-- Dual code (both preprocessor line and final output).
+	!!local partial = "Hello"
+	local   whole   = partial..!(partial..", world!")
+	print(whole) -- HelloHello, world!
+
 	-- Beware in preprocessor blocks that only call a single function!
 	!(func())  -- This will bee seen as an inline block and output whatever value func() returns (nil if nothing) as a literal.
 	!(func();) -- If that's not wanted then a trailing ";" will prevent that. This line won't output anything by itself.
@@ -986,6 +991,7 @@ for _, path in ipairs(paths) do
 
 	-- local startOfLine     = true
 	local isMeta          = false
+	local isDual          = false
 	local metaStartLine   = 0
 	local bracketBalance  = 0
 
@@ -1027,15 +1033,23 @@ for _, path in ipairs(paths) do
 				)
 				and bracketBalance == 0
 			then
-				-- startOfLine     = true
-				isMeta          = false
-				bracketBalance = 0
-
 				if tokType == "comment" then
 					table.insert(metaParts, tok.representation)
+					if isDual then  table.insert(tokensToProcess, tok)  end
 				else
 					table.insert(metaParts, "\n")
+					if isDual then  table.insert(tokensToProcess, {type="whitespace", value="\n", representation="\n"})  end
 				end
+
+				if isDual then
+					outputTokens(tokensToProcess)
+					tokensToProcess = {}
+				end
+
+				-- startOfLine    = true
+				isMeta         = false
+				isDual         = false
+				bracketBalance = 0
 
 			elseif tokType == "pp_entry" then
 				errorInFile(
@@ -1047,6 +1061,9 @@ for _, path in ipairs(paths) do
 
 			else
 				table.insert(metaParts, tok.representation)
+				if isDual then
+					table.insert(tokensToProcess, tok)
+				end
 
 				if tokType == "punctuation" and isAny(tok.value, "(","{","[") then
 					bracketBalance = bracketBalance+1
@@ -1149,9 +1166,14 @@ for _, path in ipairs(paths) do
 		--    props = {x=0, y=0},
 		-- }
 		--
-		elseif tokType == "pp_entry" and not tok.double then
-		-- elseif startOfLine and tokType == "pp_entry" and not tok.double then
+		-- Dual code. Example:
+		-- !!local foo = "A"
+		-- local bar = foo..!(foo)
+		--
+		elseif tokType == "pp_entry" then
+		-- elseif startOfLine and tokType == "pp_entry" then
 			isMeta        = true
+			isDual        = tok.double
 			metaStartLine = tok.line
 
 			if tokensToProcess[1] then
