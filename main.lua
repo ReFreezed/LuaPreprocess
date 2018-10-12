@@ -1139,9 +1139,9 @@ for _, path in ipairs(paths) do
 			local metaBlock = concatTokens(tokensInBlock)
 
 			if loadstring("return("..metaBlock..")") then
-				table.insert(metaParts, (doOutputLua and "__LUA(" or "__VAL("))
+				table.insert(metaParts, (doOutputLua and "__LUA((" or "__VAL(("))
 				table.insert(metaParts, metaBlock)
-				table.insert(metaParts, ")\n")
+				table.insert(metaParts, "))\n")
 
 			elseif doOutputLua then
 				-- We could do something other than error here. Room for more functionality.
