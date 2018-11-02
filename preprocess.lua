@@ -64,20 +64,7 @@
 
 ----------------------------------------------------------------
 
-	Exported stuff from the library:
-	- VERSION
-	- escapePattern
-	- getFileContents, fileExists
-	- metaEnvironment
-	- printf
-	- processFile
-	- toLua, serialize
-
-	Search this file for 'ExportTable' for more info.
-
-----------------------------------------------------------------
-
-	Global functions in metaprogram:
+	Global functions in metaprograms:
 	- escapePattern
 	- getFileContents, fileExists
 	- printf
@@ -87,6 +74,13 @@
 	- outputValue, outputLua
 
 	Search this file for 'EnvironmentTable' for more info.
+
+	Exported stuff from the library:
+	- (all the functions above)
+	- VERSION
+	- metaEnvironment
+
+	Search this file for 'ExportTable' for more info.
 
 --============================================================]]
 
@@ -171,7 +165,7 @@ function error(err, level)
 end
 function errorline(err)
 	print("Error: "..tostring(err))
-	onError(err)
+	onError(err, 2)
 end
 function errorOnLine(path, ln, agent, s, ...)
 	if agent then
@@ -185,7 +179,7 @@ function errorOnLine(path, ln, agent, s, ...)
 			path, ln, s:format(...)
 		)
 	end
-	onError(err)
+	onError(err, 2)
 end
 function errorInFile(contents, path, ptr, agent, s, ...)
 	local pre = contents:sub(1, ptr-1)
@@ -210,7 +204,7 @@ function errorInFile(contents, path, ptr, agent, s, ...)
 			path, ln, s:format(...), lastLine, ("-"):rep(col-1)
 		)
 	end
-	onError(err)
+	onError(err, 2)
 end
 
 function parseStringlike(s, ptr)
@@ -681,41 +675,43 @@ end
 metaEnv = copyTable(_G, true) -- Include all standard Lua stuff.
 metaEnv._G = metaEnv
 
+local metaFuncs = {}
+
 -- printf()
 --   Print a formatted string.
 --   printf( format, value1, ... )
-metaEnv.printf = printf
+metaFuncs.printf = printf
 
 -- getFileContents()
 --   Get the entire contents of a binary file or text file. Return nil and a message on error.
 --   contents, error = getFileContents( path [, isTextFile=false ] )
-metaEnv.getFileContents = getFileContents
+metaFuncs.getFileContents = getFileContents
 
 -- fileExists()
 --   Check if a file exists.
 --   bool = fileExists( path )
-metaEnv.fileExists = fileExists
+metaFuncs.fileExists = fileExists
 
 -- toLua()
 --   Convert a value to a Lua literal. Does not work with certain types, like functions or userdata.
 --   Returns nil and a message if an error ocurred.
 --   luaString, errorMessage = toLua( value )
-metaEnv.toLua = toLua
+metaFuncs.toLua = toLua
 
 -- serialize()
 --   Same as toLua() except adds the result to an array instead of returning the Lua code as a string.
 --   success, errorMessage = serialize( buffer, value )
-metaEnv.serialize = serialize
+metaFuncs.serialize = serialize
 
 -- escapePattern()
 --   Escape a string so it can be used in a pattern as plain text.
 --   escapedString = escapePattern( string )
-metaEnv.escapePattern = escapePattern
+metaFuncs.escapePattern = escapePattern
 
 -- run()
 --   Execute a Lua file. Similar to dofile().
 --   returnValue1, ... = run( path )
-function metaEnv.run(path)
+function metaFuncs.run(path)
 	assertarg(1, path, "string")
 
 	local chunk, err = loadfile(path)
@@ -732,7 +728,7 @@ end
 -- outputValue()
 --   Output one or more values, like strings or tables, as literals.
 --   outputValue( value1, ... )
-function metaEnv.outputValue(...)
+function metaFuncs.outputValue(...)
 	errorIfNotRunningMeta(2)
 
 	local argCount = select("#", ...)
@@ -756,7 +752,7 @@ end
 -- outputLua()
 --   Output one or more strings as raw Lua code.
 --   outputLua( luaString1, ... )
-function metaEnv.outputLua(...)
+function metaFuncs.outputLua(...)
 	errorIfNotRunningMeta(2)
 
 	local argCount = select("#", ...)
@@ -773,7 +769,11 @@ function metaEnv.outputLua(...)
 	end
 end
 
+-- @Incomplete: Export tokenize().
 
+
+
+for k, v in pairs(metaFuncs) do  metaEnv[k] = v  end
 
 metaEnv.__VAL = metaEnv.outputValue
 metaEnv.__LUA = metaEnv.outputLua
@@ -1068,7 +1068,7 @@ local function _processFile(params)
 
 	isRunningMeta = true
 	xpcall(chunk, function(err0)
-		local path, ln, err = err0:match'^%[string "(.-)"%]:(%d+): (.*)'
+		local path, ln, err = tostring(err0):match'^%[string "(.-)"%]:(%d+): (.*)'
 		if err then
 			errorOnLine(path, tonumber(ln), nil, "%s", err)
 		else
@@ -1144,13 +1144,18 @@ local function processFile(params)
 	isDebug = false
 	onError = _error
 
+	-- Cleanup in case an error happened.
+	isRunningMeta   = false
+	currentMetaPath = ""
+	outputFromMeta  = nil
+
 	return info, err
 end
 
 
 
 -- :ExportTable
-return {
+local lib = {
 
 	-- Processing functions.
 	----------------------------------------------------------------
@@ -1176,27 +1181,17 @@ return {
 	--
 	processFile = processFile,
 
-	-- Utilities. See 'EnvironmentTable' for more info.
-	----------------------------------------------------------------
-
-	escapePattern   = escapePattern,
-
-	getFileContents = getFileContents,
-	fileExists      = fileExists,
-
-	printf          = printf,
-
-	toLua           = toLua,
-	serialize       = serialize,
-
-	-- @Incomplete: Export tokenize().
-
 	-- Values.
 	----------------------------------------------------------------
 
 	VERSION         = VERSION, -- The version of LuaPreprocess.
 	metaEnvironment = metaEnv, -- The environment used for metaprograms.
 }
+
+-- Include all functions from the metaprogram environment.
+for k, v in pairs(metaFuncs) do  lib[k] = v  end
+
+return lib
 
 --[[!===========================================================
 
