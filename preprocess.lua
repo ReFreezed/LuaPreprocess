@@ -12,6 +12,8 @@
 
 	-- Metaprogram example:
 
+	-- The exclamation mark (*!*) is used to indicate what code is part of the metaprogram.
+
 	-- Normal Lua.
 	local n = 0
 	doTheThing()

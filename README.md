@@ -18,6 +18,8 @@ A separate [command line program](main.lua) is available too.
 
 
 ## Example Program
+The exclamation mark (*!*) is used to indicate what code is part of the metaprogram.
+
 ```lua
 -- Normal Lua.
 local n = 0
@@ -29,13 +31,17 @@ initGame()
 	enableCheats()
 !end
 
-!for i = 1, 3 do
-	print("3 lines with print().")
-!end
+function doNetworkStuff()
+	!for i = 1, 3 do
+		local success = connectToServer()
+		if success then  return "Connected!"  end
+	!end
+	return "Failed to connect after 3 tries"
+end
 
 -- Extended preprocessor line. (Lines are consumed until brackets
 -- are balanced when the end of the line is reached.)
-!newClass{
+!defineClass{
 	name  = "Entity",
 	props = {x=0, y=0},
 }
