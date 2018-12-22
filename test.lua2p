@@ -50,8 +50,64 @@ local z = !(z)
 !!local num      = "%d"
 local   ident    = !(alpha..alphanum)
 
-local s = ":: 2 * hello5(){ ... }"
+local s = [[:: 2 * hello5(){ ... }]]
 print(s:match(ident)) -- "hello5"
 print(s:match(num))   -- "2"
 
 print("The end.")
+
+!(
+--[==[ Test token stuff.
+for i, token in ipairs(assert(tokenize(getFileContents"testInclude.lua"))) do
+	print(i, token.type, "", (token.representation:gsub("\n", "\\n")))
+end
+
+for _, token in ipairs{
+	newToken("comment",     "foo"),
+	newToken("comment",     "foo", true),
+	newToken("comment",     "foo\nbar"),
+	newToken("comment",     "foo\nbar", true),
+	newToken("comment",     "foo\n12]]34"),
+	newToken("comment",     "foo\n12]]=]34"),
+	newToken("identifier",  "dog"),
+	-- newToken("identifier",  "bad!"), -- Error!
+	newToken("keyword",     "while"),
+	-- newToken("keyword",     "continue"), -- Error! :'(
+	newToken("number",      42),
+	newToken("number",      42,   "integer"),
+	newToken("number",      5.7,  "float"),
+	newToken("number",      0,    "float"),
+	newToken("number",      5.7,  "scientific"),
+	newToken("number",      .031, "scientific"),
+	newToken("number",      42,   "hexadecimal"),
+	newToken("number",      5.7,  "auto"),
+	newToken("number",      math.huge),
+	newToken("number",      -math.huge),
+	newToken("number",      0/0),
+	newToken("punctuation", "=="),
+	-- newToken("punctuation", "!="), -- Error!
+	newToken("string",      "Hello"),
+	newToken("string",      "Hello", true),
+	newToken("string",      "Hello\nworld"),
+	newToken("string",      "Hello\nworld", true),
+	newToken("string",      "Hello\n12]]34"),
+	newToken("string",      "Hello\n12]]=]34"),
+	newToken("whitespace",  " \t\n"),
+	-- newToken("whitespace",  "foo"), -- Error!
+	newToken("pp_entry",    false),
+	newToken("pp_entry",    true),
+	-- newToken("nope",        nil), -- Error!
+} do
+	print("------------------------")
+	print('type  ', token.type)
+	print('value ', (tostring(token.value):gsub("\n", "\\n")))
+	print('repr  ', (token.representation:gsub("\n", "\\n")))
+	if token.long ~= nil then
+	print('long  ', token.long)
+	end
+	if token.double ~= nil then
+	print('double', token.double)
+	end
+end
+--]==]
+)

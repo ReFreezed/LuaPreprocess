@@ -12,7 +12,7 @@
 
 	-- Metaprogram example:
 
-	-- The exclamation mark (*!*) is used to indicate what code is part of the metaprogram.
+	-- The exclamation mark (!) is used to indicate what code is part of the metaprogram.
 
 	-- Normal Lua.
 	local n = 0
@@ -71,6 +71,7 @@
 	- getFileContents, fileExists
 	- printf
 	- run
+	- tokenize, newToken
 	- toLua, serialize
 	Only in metaprogram:
 	- outputValue, outputLua
@@ -86,7 +87,7 @@
 
 --============================================================]]
 
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
@@ -98,7 +99,6 @@ local PUNCTUATION = {
 	"==", "~=", "<=", ">=", "<",  ">",  "=",
 	"(",  ")",  "{",  "}",  "[",  "]",
 	";",  ":",  ",",  ".",  "..", "...",
-	"!!", "!", -- For preprocessor.
 } for i, v in ipairs(PUNCTUATION) do  PUNCTUATION[v], PUNCTUATION[i] = true, nil  end
 
 local ESCAPE_SEQUENCES = {
@@ -184,6 +184,8 @@ function errorOnLine(path, ln, agent, s, ...)
 	onError(err, 2)
 end
 function errorInFile(contents, path, ptr, agent, s, ...)
+	s = s:format(...)
+
 	local pre = contents:sub(1, ptr-1)
 
 	local lastLine1 = pre:reverse():match"^[^\r\n]*":reverse():gsub("\t", "    ")
@@ -198,15 +200,17 @@ function errorInFile(contents, path, ptr, agent, s, ...)
 	if agent then
 		printf(
 			"Error @ %s:%d: [%s] %s\n>\n> %s\n>%s^\n>",
-			path, ln, agent, s:format(...), lastLine, ("-"):rep(col)
+			path, ln, agent, s, lastLine, ("-"):rep(col)
 		)
 	else
 		printf(
 			"Error @ %s:%d: %s\n>\n> %s\n> %s^\n>",
-			path, ln, s:format(...), lastLine, ("-"):rep(col-1)
+			path, ln,        s, lastLine, ("-"):rep(col-1)
 		)
 	end
 	onError(err, 2)
+
+	return s
 end
 
 function parseStringlike(s, ptr)
@@ -256,9 +260,8 @@ function parseStringlike(s, ptr)
 	return tok, ptr
 end
 
--- tokens = tokenize( lua, filepath )
--- token  = { type=tokenType, line=lineNumber, position=startBytePosition, representation=representation, value=value }
-function tokenize(s, path)
+-- tokens = tokenize( lua, filePath [, allowPreprocessorTokens=false ] )
+function tokenize(s, path, allowMetaTokens)
 	local tokens = {}
 	local ptr    = 1
 	local ln     = 1
@@ -287,12 +290,12 @@ function tokenize(s, path)
 			if not i1 then  i1, i2, numStr = s:find("^(%d+)",                ptr)  end
 
 			if not i1 then
-				errorInFile(s, path, ptr, "Tokenizer", "Malformed number.")
+				return nil, errorInFile(s, path, ptr, "Tokenizer", "Malformed number.")
 			end
 
 			local n = tonumber(numStr)
 			if not n then
-				errorInFile(s, path, ptr, "Tokenizer", "Invalid number.")
+				return nil, errorInFile(s, path, ptr, "Tokenizer", "Invalid number.")
 			end
 
 			ptr = i2+1
@@ -307,9 +310,9 @@ function tokenize(s, path)
 			if not tok then
 				local errCode = ptr
 				if errCode == ERROR_UNFINISHED_VALUE then
-					errorInFile(s, path, reprStart, "Tokenizer", "Unfinished long comment.")
+					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Unfinished long comment.")
 				else
-					errorInFile(s, path, reprStart, "Tokenizer", "Invalid comment.")
+					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Invalid comment.")
 				end
 			end
 
@@ -331,7 +334,7 @@ function tokenize(s, path)
 				local c = s:sub(ptr, ptr)
 
 				if c == "" then
-					errorInFile(s, path, reprStart, "Tokenizer", "Unfinished string.")
+					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Unfinished string.")
 
 				elseif c == quoteChar then
 					reprEnd  = ptr
@@ -343,7 +346,7 @@ function tokenize(s, path)
 					-- Note: We don't have to look for multiple characters after
 					-- the escape, like \nnn - this algorithm works anyway.
 					if ptr+1 > #s then
-						errorInFile(s, path, reprStart, "Tokenizer", "Unfinished string after escape.")
+						return nil, errorInFile(s, path, reprStart, "Tokenizer", "Unfinished string after escape.")
 					end
 					ptr = ptr+2
 
@@ -356,7 +359,7 @@ function tokenize(s, path)
 
 			local valueChunk = loadstring("return"..repr)
 			if not valueChunk then
-				errorInFile(s, path, reprStart, "Tokenizer", "Malformed string.")
+				return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed string.")
 			end
 
 			local v = valueChunk()
@@ -372,15 +375,15 @@ function tokenize(s, path)
 			if not tok then
 				local errCode = ptr
 				if errCode == ERROR_UNFINISHED_VALUE then
-					errorInFile(s, path, reprStart, "Tokenizer", "Unfinished long string.")
+					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Unfinished long string.")
 				else
-					errorInFile(s, path, reprStart, "Tokenizer", "Invalid long string.")
+					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Invalid long string.")
 				end
 			end
 
 			local valueChunk = loadstring("return"..tok.representation)
 			if not valueChunk then
-				errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
+				return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
 			end
 
 			local v = valueChunk()
@@ -411,14 +414,14 @@ function tokenize(s, path)
 			ptr = ptr+#repr
 
 		-- Preprocessor: Entry.
-		elseif s:find("^!", ptr) then
+		elseif allowMetaTokens and s:find("^!", ptr) then
 			local double = s:find("^!", ptr+1) ~= nil
 			local repr   = s:sub(ptr, ptr+(double and 1 or 0))
 			tok = {type="pp_entry", representation=repr, value=repr, double=double}
 			ptr = ptr+#repr
 
 		else
-			errorInFile(s, path, ptr, "Tokenizer", "Unknown character.")
+			return nil, errorInFile(s, path, ptr, "Tokenizer", "Unknown character.")
 		end
 
 		tok.line     = ln
@@ -771,7 +774,157 @@ function metaFuncs.outputLua(...)
 	end
 end
 
--- @Incomplete: Export tokenize().
+-- tokenize()
+--   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
+--   tokens, errorMessage = tokenize( luaString [, allowPreprocessorTokens=false ] )
+--   token = { type=tokenType, representation=representation, value=value, line=lineNumber, position=bytePosition, ... }
+function metaFuncs.tokenize(lua, allowMetaTokens)
+	local tokens, err = tokenize(lua, "<string>", allowMetaTokens)
+	return tokens, err
+end
+
+-- newToken()
+--   Create a new token. Different token types take different arguments.
+--   token = newToken( tokenType, ... )
+--
+--   commentToken      = newToken( "comment",     contents [, forceLongForm=false ] )
+--   identifierToken   = newToken( "identifier",  identifier )
+--   keywordToken      = newToken( "keyword",     keyword )
+--   numberToken       = newToken( "number",      number [, numberFormat="auto" ] )
+--   punctuationToken  = newToken( "punctuation", symbol )
+--   stringToken       = newToken( "string",      contents [, forceLongForm=false ] )
+--   whitespaceToken   = newToken( "whitespace",  contents )
+--   preprocessorToken = newToken( "pp_entry",    isDouble )
+--
+--   commentToken      = { type="comment",     representation=string, value=string, long=isLongForm }
+--   identifierToken   = { type="identifier",  representation=string, value=string }
+--   keywordToken      = { type="keyword",     representation=string, value=string }
+--   numberToken       = { type="number",      representation=string, value=number }
+--   punctuationToken  = { type="punctuation", representation=string, value=string }
+--   stringToken       = { type="string",      representation=string, value=string, long=isLongForm }
+--   whitespaceToken   = { type="whitespace",  representation=string, value=string }
+--   preprocessorToken = { type="pp_entry",    representation=string, value=string, double=isDouble }
+--
+-- Number formats:
+--   "integer"      E.g. 42
+--   "float"        E.g. 3.14
+--   "scientific"   E.g. 0.7e+12
+--   "SCIENTIFIC"   E.g. 0.7E+12 (upper case)
+--   "hexadecimal"  E.g. 0x19af
+--   "HEXADECIMAL"  E.g. 0x19AF (upper case)
+--   "auto"         Note: Infinite numbers and NaN always get automatic format.
+--
+function metaFuncs.newToken(tokType, ...)
+	if tokType == "comment" then
+		local comment, long = ...
+		long = not not (long or comment:find"[\r\n]")
+
+		local repr
+		if long then
+			local equalSigns = ""
+
+			while comment:find(F("]%s]", equalSigns), 1, true) do
+				equalSigns = equalSigns.."="
+			end
+
+			repr = F("--[%s[%s]%s]", equalSigns, comment, equalSigns)
+
+		else
+			repr = F("--%s\n", comment)
+		end
+
+		return {type="comment", representation=repr, value=comment, long=long}
+
+	elseif tokType == "identifier" then
+		local ident = ...
+
+		if ident == "" then
+			error("Identifier length is 0.")
+		elseif not ident:find"^[%a_][%w_]*$" then
+			error(F("Bad identifier format: '%s'", ident))
+		end
+
+		return {type="identifier", representation=ident, value=ident}
+
+	elseif tokType == "keyword" then
+		local keyword = ...
+
+		if not KEYWORDS[keyword] then
+			error(F("Bad keyword '%s'.", keyword))
+		end
+
+		return {type="keyword", representation=keyword, value=keyword}
+
+	elseif tokType == "number" then
+		local n, numberFormat = ...
+		numberFormat = numberFormat or "auto"
+
+		-- Some of these are technically multiple other tokens. We could trigger an error but ehhh...
+		local numStr
+			=  n            ~= n             and "0/0"
+			or n            == math.huge     and "math.huge"
+			or n            == -math.huge    and "-math.huge"
+			or numberFormat == "auto"        and tostring(n)
+			or numberFormat == "integer"     and F("%d", n)
+			or numberFormat == "float"       and F("%f", n):gsub("(%d)0+$", "%1")
+			or numberFormat == "scientific"  and F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1")
+			or numberFormat == "SCIENTIFIC"  and F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1")
+			or numberFormat == "hexadecimal" and F("0x%x", n)
+			or numberFormat == "HEXADECIMAL" and F("0x%X", n)
+			or error(F("Invalid number format '%s'.", numberFormat))
+
+		return {type="number", representation=numStr, value=n}
+
+	elseif tokType == "punctuation" then
+		local symbol = ...
+
+		-- Note: "!" and "!!" are of a different token type (pp_entry).
+		if not PUNCTUATION[symbol] then
+			error(F("Bad symbol '%s'.", symbol))
+		end
+
+		return {type="punctuation", representation=symbol, value=symbol}
+
+	elseif tokType == "string" then
+		local s, long = ...
+		long = not not (long or s:find"[\r\n]")
+
+		local repr
+		if long then
+			local equalSigns = ""
+
+			while s:find(F("]%s]", equalSigns), 1, true) do
+				equalSigns = equalSigns.."="
+			end
+
+			repr = F("--[%s[%s]%s]", equalSigns, s, equalSigns)
+
+		else
+			repr = F("%q", s):gsub("\\\n", "\\n")
+		end
+
+		return {type="string", representation=repr, value=s, long=long}
+
+	elseif tokType == "whitespace" then
+		local whitespace = ...
+
+		if whitespace == "" then
+			error("String is empty.")
+		elseif whitespace:find"%S" then
+			error("String contains non-whitespace characters.")
+		end
+
+		return {type="whitespace", representation=whitespace, value=whitespace}
+
+	elseif tokType == "pp_entry" then
+		local double = not not ...
+		local symbol = double and "!!" or "!"
+		return {type="pp_entry", representation=symbol, value=symbol, double=double}
+
+	else
+		error(F("Invalid token type '%s'.", tokType))
+	end
+end
 
 
 
@@ -797,7 +950,7 @@ local function _processFile(params)
 		luaUnprocessed = rest
 	end
 
-	local tokens    = tokenize(luaUnprocessed, params.pathIn)
+	local tokens    = tokenize(luaUnprocessed, params.pathIn, true)
 	local lastToken = tokens[#tokens]
 	-- printTokens(tokens)
 
