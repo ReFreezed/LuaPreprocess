@@ -1279,22 +1279,17 @@ local function processFile(params)
 	local err  = nil
 
 	isDebug = params.debug
-
 	onError = function(_err)
 		err = _err
 		if params.onError then  params.onError(err)  end
-
-		coroutine.yield()
 	end
 
-	coroutine.wrap(function()
-		xpcall(
-			function()
-				info = _processFile(params)
-			end,
-			onError
-		)
-	end)()
+	xpcall(
+		function()
+			info = _processFile(params)
+		end,
+		onError
+	)
 
 	isDebug = false
 	onError = _error

@@ -126,9 +126,7 @@ end
 function printf(s, ...)
 	print(s:format(...))
 end
-function printfNoise(s, ...)
-	if not silent then  printf(s, ...)  end
-end
+printfNoise = printf
 
 function errorline(err)
 	print("Error: "..tostring(err))
@@ -178,6 +176,10 @@ for _, arg in ipairs(args) do
 	else
 		table.insert(paths, arg)
 	end
+end
+
+if silent then
+	printfNoise = function()end
 end
 
 local header = "= LuaPreprocess v"..pp.VERSION..os.date(", %Y-%m-%d %H:%M:%S =", startTime)
