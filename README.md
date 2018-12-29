@@ -27,7 +27,7 @@ doSomething()
 
 -- Preprocessor lines.
 initGame()
-!if isDeveloper then
+!if IS_DEVELOPER then
 	enableCheats()
 !end
 
@@ -60,6 +60,8 @@ local text = !("Precalculated hash: "..getHash())
 -- Preprocessor inline block variant. (Expression that returns a Lua string.)
 !!("myRandomGlobal"..math.random(9)) = "foo"
 ```
+
+See the [examples folder](examples) for more.
 
 
 
