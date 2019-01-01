@@ -1,6 +1,6 @@
 # LuaPreprocess
 
-![version 1.1](https://img.shields.io/badge/version-1.1-limegreen.svg)
+![version 1.1.1](https://img.shields.io/badge/version-1.1.1-limegreen.svg)
 
 A small and straightforward Lua preprocessor featuring a simple syntax.
 Write embedded metaprograms to generate code using normal Lua inside your Lua files.

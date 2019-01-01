@@ -59,7 +59,7 @@ print("The end.")
 !(
 --[==[ Test token stuff.
 for i, token in ipairs(assert(tokenize(getFileContents"testInclude.lua"))) do
-	print(i, token.type, "", (token.representation:gsub("\n", "\\n")))
+	print(i, token.type, "", (token.representation:gsub("\n", "<NEWLINE>")))
 end
 
 for _, token in ipairs{
@@ -90,8 +90,8 @@ for _, token in ipairs{
 	newToken("string",      "Hello", true),
 	newToken("string",      "Hello\nworld"),
 	newToken("string",      "Hello\nworld", true),
-	newToken("string",      "Hello\n12]]34"),
-	newToken("string",      "Hello\n12]]=]34"),
+	newToken("string",      "Hello\n12]]34", true),
+	newToken("string",      "Hello\n12]]=]34", true),
 	newToken("whitespace",  " \t\n"),
 	-- newToken("whitespace",  "foo"), -- Error!
 	newToken("pp_entry",    false),
@@ -99,14 +99,14 @@ for _, token in ipairs{
 	-- newToken("nope",        nil), -- Error!
 } do
 	print("------------------------")
-	print('type  ', token.type)
-	print('value ', (tostring(token.value):gsub("\n", "\\n")))
-	print('repr  ', (token.representation:gsub("\n", "\\n")))
+	print("type  ", token.type)
+	print("value ", (tostring(token.value):gsub("\n", "<NEWLINE>")))
+	print("repr  ", (token.representation :gsub("\n", "<NEWLINE>")))
 	if token.long ~= nil then
-	print('long  ', token.long)
+	print("long  ", token.long)
 	end
 	if token.double ~= nil then
-	print('double', token.double)
+	print("double", token.double)
 	end
 end
 --]==]

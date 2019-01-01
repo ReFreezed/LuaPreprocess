@@ -87,7 +87,7 @@
 
 --============================================================]]
 
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
@@ -792,7 +792,7 @@ end
 --   keywordToken      = newToken( "keyword",     keyword )
 --   numberToken       = newToken( "number",      number [, numberFormat="auto" ] )
 --   punctuationToken  = newToken( "punctuation", symbol )
---   stringToken       = newToken( "string",      contents [, forceLongForm=false ] )
+--   stringToken       = newToken( "string",      contents [, longForm=false ] )
 --   whitespaceToken   = newToken( "whitespace",  contents )
 --   preprocessorToken = newToken( "pp_entry",    isDouble )
 --
@@ -887,7 +887,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "string" then
 		local s, long = ...
-		long = not not (long or s:find"[\r\n]")
+		long = not not long
 
 		local repr
 		if long then
@@ -897,7 +897,7 @@ function metaFuncs.newToken(tokType, ...)
 				equalSigns = equalSigns.."="
 			end
 
-			repr = F("--[%s[%s]%s]", equalSigns, s, equalSigns)
+			repr = F("[%s[%s]%s]", equalSigns, s, equalSigns)
 
 		else
 			repr = F("%q", s):gsub("\\\n", "\\n")
