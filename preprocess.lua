@@ -116,16 +116,16 @@ local ESCAPE_SEQUENCES = {
 
 local ERROR_UNFINISHED_VALUE = 1
 
-local _error             = error
+local _error                   = error
 
-local metaEnv            = nil
+local metaEnv                  = nil
 
-local isDebug            = false
-local onError            = _error
+local isDebug                  = false
+local onError                  = _error
 
-local isRunningMeta      = false
-local currentMetaPath    = ""
-local outputFromMeta     = nil
+local isRunningMeta            = false
+local metaPathForErrorMessages = ""
+local outputFromMeta           = nil
 
 --==============================================================
 --= Local Functions ============================================
@@ -740,7 +740,7 @@ function metaFuncs.outputValue(...)
 	if argCount == 0 then
 		error("No values to output.", 2)
 		-- local ln = debug.getinfo(2, "l").currentline
-		-- errorOnLine(currentMetaPath, ln, "MetaProgram", "No values to output.")
+		-- errorOnLine(metaPathForErrorMessages, ln, "MetaProgram", "No values to output.")
 	end
 
 	for i = 1, argCount do
@@ -749,7 +749,7 @@ function metaFuncs.outputValue(...)
 
 		if not ok then
 			local ln = debug.getinfo(2, "l").currentline
-			errorOnLine(currentMetaPath, ln, "MetaProgram", "%s", err)
+			errorOnLine(metaPathForErrorMessages, ln, "MetaProgram", "%s", err)
 		end
 	end
 end
@@ -764,7 +764,7 @@ function metaFuncs.outputLua(...)
 	if argCount == 0 then
 		error("No Lua code to output.", 2)
 		-- local ln = debug.getinfo(2, "l").currentline
-		-- errorOnLine(currentMetaPath, ln, "MetaProgram", "No Lua code to output.")
+		-- errorOnLine(metaPathForErrorMessages, ln, "MetaProgram", "No Lua code to output.")
 	end
 
 	for i = 1, argCount do
@@ -936,9 +936,8 @@ metaEnv.__LUA = metaEnv.outputLua
 
 
 local function _processFile(params)
-	if not params.pathIn   then  error("Missing 'pathIn' in params.",   2)  end
-	if not params.pathMeta then  error("Missing 'pathMeta' in params.", 2)  end
-	if not params.pathOut  then  error("Missing 'pathOut' in params.",  2)  end
+	if not params.pathIn  then  error("Missing 'pathIn' in params.",  2)  end
+	if not params.pathOut then  error("Missing 'pathOut' in params.", 2)  end
 
 	local luaUnprocessed, err = getFileContents(params.pathIn)
 	if not luaUnprocessed then
@@ -1205,17 +1204,19 @@ local function _processFile(params)
 	print("====================================")
 	--]]
 
-	currentMetaPath = params.pathMeta
+	metaPathForErrorMessages = params.pathMeta or "<meta>"
 	outputFromMeta  = {}
 
-	local file = assert(io.open(currentMetaPath, "wb"))
-	file:write(luaMeta)
-	file:close()
+	if params.pathMeta then
+		local file = assert(io.open(params.pathMeta, "wb"))
+		file:write(luaMeta)
+		file:close()
+	end
 
-	local chunk, err = loadstring(luaMeta, currentMetaPath)
+	local chunk, err = loadstring(luaMeta, metaPathForErrorMessages)
 	if not chunk then
 		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
-		errorOnLine(currentMetaPath, tonumber(ln), nil, "%s", err)
+		errorOnLine(metaPathForErrorMessages, tonumber(ln), nil, "%s", err)
 	end
 	setfenv(chunk, metaEnv)
 
@@ -1232,8 +1233,8 @@ local function _processFile(params)
 	end)
 	isRunningMeta = false
 
-	if not isDebug then
-		os.remove(currentMetaPath)
+	if not isDebug and params.pathMeta then
+		os.remove(params.pathMeta)
 	end
 
 	local lua = table.concat(outputFromMeta)
@@ -1243,8 +1244,8 @@ local function _processFile(params)
 	print("====================================")
 	--]]
 
-	currentMetaPath = ""
-	outputFromMeta  = nil
+	metaPathForErrorMessages = ""
+	outputFromMeta           = nil
 
 	if params.onAfterMeta then  params.onAfterMeta(lua)  end
 
@@ -1295,9 +1296,9 @@ local function processFile(params)
 	onError = _error
 
 	-- Cleanup in case an error happened.
-	isRunningMeta   = false
-	currentMetaPath = ""
-	outputFromMeta  = nil
+	isRunningMeta            = false
+	metaPathForErrorMessages = ""
+	outputFromMeta           = nil
 
 	return info, err
 end
@@ -1319,7 +1320,7 @@ local lib = {
 	--
 	-- params: Table with these fields:
 	--   pathIn         = pathToInputFile    -- [Required]
-	--   pathMeta       = pathForMetaprogram -- [Required] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   pathMeta       = pathForMetaprogram -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
 	--   pathOut        = pathToOutputFile   -- [Required]
 	--
 	--   addLineNumbers = boolean            -- [Optional] Add comments with line numbers to the output.

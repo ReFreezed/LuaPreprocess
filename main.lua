@@ -15,7 +15,7 @@ exec lua "$0" "$@"
 --==============================================================
 
 	Script usage:
-		lua main.lua [options] [--] path1 [path2 ...]
+		lua main.lua [options] [--] filepath1 [filepath2 ...]
 
 	Options:
 		--handler=pathToMessageHandler
@@ -25,6 +25,11 @@ exec lua "$0" "$@"
 
 		--linenumbers
 			Add comments with line numbers to the output.
+
+		--meta
+			Output the metaprogram to a temporary file (*.meta.lua). Useful
+			if an error happens in the metaprogram. This file is removed if
+			there's no error and --debug isn't enabled.
 
 		--outputextension=fileExtension
 			Specify what file extension generated files should have. The
@@ -42,7 +47,8 @@ exec lua "$0" "$@"
 
 		--debug
 			Enable some preprocessing debug features. Useful if you want
-			to inspect the generated metaprogram (*.meta.lua).
+			to inspect the generated metaprogram (*.meta.lua). (This also
+			enables the --meta option.)
 
 		--
 			Stop options from being parsed further. Needed if you have
@@ -144,6 +150,7 @@ math.random() -- Must kickstart...
 
 local processOptions     = true
 local messageHandlerPath = ""
+local outputMeta         = false
 local paths              = {}
 
 for _, arg in ipairs(args) do
@@ -161,13 +168,17 @@ for _, arg in ipairs(args) do
 			addLineNumbers = true
 
 		elseif arg == "--debug" then
-			isDebug = true
+			isDebug    = true
+			outputMeta = true
 
 		elseif arg:find"^%-%-saveinfo=" then
 			processingInfoPath = arg:match"^%-%-saveinfo=(.*)$"
 
 		elseif arg:find"^%-%-outputextension=" then
 			outputExtension = arg:match"^%-%-outputextension=(.*)$"
+
+		elseif arg == "--meta" then
+			outputMeta = true
 
 		else
 			errorline("Unknown option '"..arg.."'.")
@@ -240,9 +251,13 @@ for _, path in ipairs(paths) do
 	local pathMeta = path:gsub("%.%w+$", "")..".meta.lua"
 	local pathOut  = path:gsub("%.%w+$", "").."."..outputExtension
 
+	if not outputMeta then
+		pathMeta = nil
+	end
+
 	local info = pp.processFile{
 		pathIn         = path,
-		pathMeta       = pathMeta, --@Cleanup: Get rid of parameters.pathMeta?
+		pathMeta       = pathMeta,
 		pathOut        = pathOut,
 
 		debug          = isDebug,
