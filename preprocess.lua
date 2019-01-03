@@ -82,12 +82,13 @@
 	- (all the functions above)
 	- VERSION
 	- metaEnvironment
+	- processFile, processString
 
 	Search this file for 'ExportTable' for more info.
 
 --============================================================]]
 
-local VERSION = "1.1.1"
+local VERSION = "1.2.0"
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
@@ -935,13 +936,29 @@ metaEnv.__LUA = metaEnv.outputLua
 
 
 
-local function _processFile(params)
-	if not params.pathIn  then  error("Missing 'pathIn' in params.",  2)  end
-	if not params.pathOut then  error("Missing 'pathOut' in params.", 2)  end
+local function _processFileOrString(params, isFile)
+	if isFile then
+		if not params.pathIn  then  error("Missing 'pathIn' in params.",  2)  end
+		if not params.pathOut then  error("Missing 'pathOut' in params.", 2)  end
+	else
+		if not params.code    then  error("Missing 'code' in params.",    2)  end
+	end
 
-	local luaUnprocessed, err = getFileContents(params.pathIn)
-	if not luaUnprocessed then
-		errorline("Could not read file: "..err)
+	local luaUnprocessed, pathIn
+
+	if isFile then
+		local err
+
+		pathIn              = params.pathIn
+		luaUnprocessed, err = getFileContents(pathIn)
+
+		if not luaUnprocessed then
+			errorline("Could not read file: "..err)
+		end
+
+	else
+		pathIn         = "<code>"
+		luaUnprocessed = params.code
 	end
 
 	local specialFirstLine, rest = luaUnprocessed:match"^(#[^\r\n]*\r?\n?)(.*)$"
@@ -949,7 +966,7 @@ local function _processFile(params)
 		luaUnprocessed = rest
 	end
 
-	local tokens    = tokenize(luaUnprocessed, params.pathIn, true)
+	local tokens    = tokenize(luaUnprocessed, pathIn, true)
 	local lastToken = tokens[#tokens]
 	-- printTokens(tokens)
 
@@ -1033,7 +1050,7 @@ local function _processFile(params)
 
 			elseif tokType == "pp_entry" then
 				errorInFile(
-					luaUnprocessed, params.pathIn, tok.position, "Parser",
+					luaUnprocessed, pathIn, tok.position, "Parser",
 					"Preprocessor token inside metaprogram"
 						..(tok.line == metaStartLine and "." or " (starting at line %d)."),
 					metaStartLine
@@ -1052,7 +1069,7 @@ local function _processFile(params)
 
 					if bracketBalance < 0 then
 						errorInFile(
-							luaUnprocessed, params.pathIn, tok.position, "Parser",
+							luaUnprocessed, pathIn, tok.position, "Parser",
 							"Unexpected '%s'. Preprocessor line"
 								..(tok.line == metaStartLine and "" or " (starting at line %d)")
 								.." has unbalanced brackets.",
@@ -1092,7 +1109,7 @@ local function _processFile(params)
 			while true do
 				tok = tokens[tokenIndex]
 				if not tok then
-					errorInFile(luaUnprocessed, params.pathIn, startPos, "Parser", "Missing end of preprocessor block.")
+					errorInFile(luaUnprocessed, pathIn, startPos, "Parser", "Missing end of preprocessor block.")
 				end
 
 				tokType = tok.type
@@ -1106,7 +1123,7 @@ local function _processFile(params)
 
 				elseif tokType == "pp_entry" then
 					errorInFile(
-						luaUnprocessed, params.pathIn, tok.position, "Parser",
+						luaUnprocessed, pathIn, tok.position, "Parser",
 						"Preprocessor token inside metaprogram"..(tok.line == startLine and "." or " (starting at line %d)."),
 						startLine
 					)
@@ -1126,7 +1143,7 @@ local function _processFile(params)
 			elseif doOutputLua then
 				-- We could do something other than error here. Room for more functionality.
 				errorInFile(
-					luaUnprocessed, params.pathIn, startPos+3, "Parser",
+					luaUnprocessed, pathIn, startPos+3, "Parser",
 					"Preprocessor block variant does not contain a valid expression that results in a value."
 				)
 
@@ -1163,9 +1180,9 @@ local function _processFile(params)
 
 		elseif tokType == "pp_entry" then
 			if tok.double then
-				errorInFile(luaUnprocessed, params.pathIn, tok.position, "Parser", "Unexpected double preprocessor token.")
+				errorInFile(luaUnprocessed, pathIn, tok.position, "Parser", "Unexpected double preprocessor token.")
 			else
-				errorInFile(luaUnprocessed, params.pathIn, tok.position, "Parser", "Unexpected preprocessor token.")
+				errorInFile(luaUnprocessed, pathIn, tok.position, "Parser", "Unexpected preprocessor token.")
 			end
 
 		-- Non-meta.
@@ -1252,16 +1269,20 @@ local function _processFile(params)
 	-- Write output file.
 	----------------------------------------------------------------
 
-	local file = assert(io.open(params.pathOut, "wb"))
-	file:write(specialFirstLine or "")
-	file:write(lua)
-	file:close()
+	pathOut = isFile and params.pathOut or "<output>"
+
+	if isFile then
+		local file = assert(io.open(pathOut, "wb"))
+		file:write(specialFirstLine or "")
+		file:write(lua)
+		file:close()
+	end
 
 	-- Test if the output is valid Lua.
-	local chunk, err = loadstring(lua, params.pathOut)
+	local chunk, err = loadstring(lua, pathOut)
 	if not chunk then
 		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
-		errorOnLine(params.pathOut, tonumber(ln), nil, "%s", err)
+		errorOnLine(pathOut, tonumber(ln), nil, "%s", err)
 	end
 
 	-- :ProcessInfo
@@ -1272,12 +1293,18 @@ local function _processFile(params)
 		hasPreprocessorCode = hasPreprocessorCode,
 	}
 
-	return info
+	if isFile then
+		return info
+	else
+		if specialFirstLine then
+			lua = specialFirstLine..lua
+		end
+		return lua, info
+	end
 end
 
-local function processFile(params)
-	local info = nil
-	local err  = nil
+local function processFileOrString(params, isFile)
+	local returnValues = nil
 
 	isDebug = params.debug
 	onError = function(_err)
@@ -1287,7 +1314,7 @@ local function processFile(params)
 
 	xpcall(
 		function()
-			info = _processFile(params)
+			returnValues = pack(_processFileOrString(params, isFile))
 		end,
 		onError
 	)
@@ -1300,7 +1327,19 @@ local function processFile(params)
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
 
-	return info, err
+	if err then
+		return nil, err
+	else
+		return unpack(returnValues, 1, returnValues.n)
+	end
+end
+
+local function processFile(params)
+	return processFileOrString(params, true)
+end
+
+local function processString(params)
+	return processFileOrString(params, false)
 end
 
 
@@ -1319,18 +1358,36 @@ local lib = {
 	-- error: Error message, or nil if no error happened.
 	--
 	-- params: Table with these fields:
-	--   pathIn         = pathToInputFile    -- [Required]
-	--   pathMeta       = pathForMetaprogram -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
-	--   pathOut        = pathToOutputFile   -- [Required]
+	--   pathIn         = pathToInputFile     -- [Required]
+	--   pathMeta       = pathForMetaprogram  -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   pathOut        = pathToOutputFile    -- [Required]
 	--
-	--   addLineNumbers = boolean            -- [Optional] Add comments with line numbers to the output.
-	--   debug          = boolean            -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers = boolean             -- [Optional] Add comments with line numbers to the output.
+	--   debug          = boolean             -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   onAfterMeta    = function( lua )    -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
-	--   onBeforeMeta   = function( )        -- [Optional] Called before the metaprogram runs.
-	--   onError        = function( error )  -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
+	--   onAfterMeta    = function( luaCode ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
+	--   onBeforeMeta   = function( )         -- [Optional] Called before the metaprogram runs.
+	--   onError        = function( error )   -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
 	--
 	processFile = processFile,
+
+	-- processString()
+	-- Process Lua code.
+	--
+	-- code, info = processString( params )
+	-- info: Table with various information, or a message if an error happened. See 'ProcessInfo' for more info.
+	--
+	-- params: Table with these fields:
+	--   code           = luaCode             -- [Required]
+	--   pathMeta       = pathForMetaprogram  -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--
+	--   addLineNumbers = boolean             -- [Optional] Add comments with line numbers to the output.
+	--   debug          = boolean             -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--
+	--   onBeforeMeta   = function( )         -- [Optional] Called before the metaprogram runs.
+	--   onError        = function( error )   -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
+	--
+	processString = processString,
 
 	-- Values.
 	----------------------------------------------------------------
