@@ -1287,7 +1287,15 @@ local function _processFileOrString(params, isFile)
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
 
-	if params.onAfterMeta then  params.onAfterMeta(lua)  end
+	if params.onAfterMeta then
+		local luaModified = params.onAfterMeta(lua)
+
+		if type(luaModified) == "string" then
+			lua = luaModified
+		elseif luaModified ~= nil then
+			errorline("onAfterMeta() did not return a string. (Got "..type(luaModified)..")")
+		end
+	end
 
 	-- Write output file.
 	----------------------------------------------------------------
