@@ -100,6 +100,7 @@ local isDebug            = false
 local outputExtension    = "lua"
 local processingInfoPath = ""
 local silent             = false
+local outputMeta         = false
 
 --==============================================================
 --= Local Functions ============================================
@@ -116,6 +117,8 @@ function formatBytes(n)
 		return F("%.2f MB", n/(1024*1024))
 	elseif n >= 1024 then
 		return F("%.2f kB", n/(1024))
+	elseif n == 1 then
+		return F("1 byte", n)
 	else
 		return F("%d bytes", n)
 	end
@@ -150,7 +153,6 @@ math.random() -- Must kickstart...
 
 local processOptions     = true
 local messageHandlerPath = ""
-local outputMeta         = false
 local paths              = {}
 
 for _, arg in ipairs(args) do
@@ -240,9 +242,10 @@ local processingInfo = {
 	files = {},
 }
 
-local byteCount  = 0
-local lineCount  = 0
-local tokenCount = 0
+local byteCount     = 0
+local lineCount     = 0
+local lineCountCode = 0
+local tokenCount    = 0
 
 for _, path in ipairs(paths) do
 	local startClockForPath = os.clock()
@@ -286,17 +289,16 @@ for _, path in ipairs(paths) do
 
 	if messageHandler then  messageHandler("filedone", path, pathOut)  end
 
-	byteCount  = byteCount+info.processedByteCount
-	lineCount  = lineCount+info.lineCount
-	tokenCount = tokenCount+info.tokenCount
+	byteCount     = byteCount+info.processedByteCount
+	lineCount     = lineCount+info.lineCount
+	lineCountCode = lineCountCode+info.linesOfCode
+	tokenCount    = tokenCount+info.tokenCount
 
 	if processingInfoPath ~= "" then
 
 		-- :SavedInfo
-		table.insert(processingInfo.files, {
-			path                = path,
-			hasPreprocessorCode = info.hasPreprocessorCode,
-		})
+		info.path = path -- See 'ProcessInfo' in preprocess.lua to what more 'info' contains.
+		table.insert(processingInfo.files, info)
 
 	end
 
@@ -317,8 +319,13 @@ if processingInfoPath ~= "" then
 end
 
 printfNoise(
-	"All done! (%.3fs, %.0f lines, %.0f tokens, %s)",
-	os.clock()-startClock, lineCount, tokenCount, formatBytes(byteCount)
+	"All done! (%.3fs, %.0f file%s, %.0f LOC, %.0f line%s, %.0f token%s, %s)",
+	os.clock()-startClock,
+	#paths,     #paths     == 1 and "" or "s",
+	lineCountCode,
+	lineCount,  lineCount  == 1 and "" or "s",
+	tokenCount, tokenCount == 1 and "" or "s",
+	formatBytes(byteCount)
 )
 
 --[[!===========================================================

@@ -71,7 +71,7 @@
 	- getFileContents, fileExists
 	- printf
 	- run
-	- tokenize, newToken
+	- tokenize, newToken, concatTokens
 	- toLua, serialize
 	Only in metaprogram:
 	- outputValue, outputLua
@@ -88,7 +88,7 @@
 
 --============================================================]]
 
-local VERSION = "1.2.0"
+local VERSION = "1.3.0"
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
@@ -429,6 +429,7 @@ function tokenize(s, path, allowMetaTokens)
 		tok.position = tokenPos
 
 		ln = ln+countString(tok.representation, "\n", true)
+		tok.lineEnd = ln
 
 		table.insert(tokens, tok)
 		-- print(#tokens, tok.type, tok.representation)
@@ -593,7 +594,7 @@ function serialize(buffer, v)
 	return true
 end
 
--- luaString, errorMessage = toLua( value )
+-- luaString, error = toLua( value )
 function toLua(v)
 	local buffer = {}
 
@@ -701,12 +702,12 @@ metaFuncs.fileExists = fileExists
 -- toLua()
 --   Convert a value to a Lua literal. Does not work with certain types, like functions or userdata.
 --   Returns nil and a message if an error ocurred.
---   luaString, errorMessage = toLua( value )
+--   luaString, error = toLua( value )
 metaFuncs.toLua = toLua
 
 -- serialize()
 --   Same as toLua() except adds the result to an array instead of returning the Lua code as a string.
---   success, errorMessage = serialize( buffer, value )
+--   success, error = serialize( buffer, value )
 metaFuncs.serialize = serialize
 
 -- escapePattern()
@@ -777,8 +778,8 @@ end
 
 -- tokenize()
 --   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
---   tokens, errorMessage = tokenize( luaString [, allowPreprocessorTokens=false ] )
---   token = { type=tokenType, representation=representation, value=value, line=lineNumber, position=bytePosition, ... }
+--   tokens, error = tokenize( luaString [, allowPreprocessorTokens=false ] )
+--   token = { type=tokenType, representation=representation, value=value, line=lineNumber, lineEnd=lineNumber, position=bytePosition, ... }
 function metaFuncs.tokenize(lua, allowMetaTokens)
 	local tokens, err = tokenize(lua, "<string>", allowMetaTokens)
 	return tokens, err
@@ -927,6 +928,13 @@ function metaFuncs.newToken(tokType, ...)
 	end
 end
 
+-- concatTokens()
+--   Concatinate tokens by their representations.
+--   luaString = concatTokens( tokens )
+function metaFuncs.concatTokens(tokens)
+	return concatTokens(tokens)
+end
+
 
 
 for k, v in pairs(metaFuncs) do  metaEnv[k] = v  end
@@ -935,6 +943,20 @@ metaEnv.__VAL = metaEnv.outputValue
 metaEnv.__LUA = metaEnv.outputLua
 
 
+
+local function getLineCountWithCode(tokens)
+	local lineCount = 0
+	local lastLine  = 0
+
+	for _, tok in ipairs(tokens) do
+		if not (tok.type == "comment" or tok.type == "whitespace") and tok.lineEnd > lastLine then
+			lineCount = lineCount+(tok.lineEnd-tok.line+1)
+			lastLine  = tok.lineEnd
+		end
+	end
+
+	return lineCount
+end
 
 local function _processFileOrString(params, isFile)
 	if isFile then
@@ -972,7 +994,8 @@ local function _processFileOrString(params, isFile)
 
 	-- Info variables.
 	local processedByteCount  = #luaUnprocessed
-	local lineCount           = lastToken and lastToken.line+countString(lastToken.representation, "\n") or 0
+	local lineCount           = (specialFirstLine and 1 or 0) + (lastToken and lastToken.line + countString(lastToken.representation, "\n") or 0)
+	local lineCountCode       = getLineCountWithCode(tokens)
 	local tokenCount          = #tokens
 	local hasPreprocessorCode = false
 
@@ -1289,6 +1312,7 @@ local function _processFileOrString(params, isFile)
 	local info = {
 		processedByteCount  = processedByteCount,
 		lineCount           = lineCount,
+		linesOfCode         = lineCountCode,
 		tokenCount          = tokenCount,
 		hasPreprocessorCode = hasPreprocessorCode,
 	}
@@ -1358,16 +1382,16 @@ local lib = {
 	-- error: Error message, or nil if no error happened.
 	--
 	-- params: Table with these fields:
-	--   pathIn         = pathToInputFile     -- [Required]
-	--   pathMeta       = pathForMetaprogram  -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
-	--   pathOut        = pathToOutputFile    -- [Required]
+	--   pathIn         = pathToInputFile       -- [Required]
+	--   pathMeta       = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   pathOut        = pathToOutputFile      -- [Required]
 	--
-	--   addLineNumbers = boolean             -- [Optional] Add comments with line numbers to the output.
-	--   debug          = boolean             -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers = boolean               -- [Optional] Add comments with line numbers to the output.
+	--   debug          = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   onAfterMeta    = function( luaCode ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
-	--   onBeforeMeta   = function( )         -- [Optional] Called before the metaprogram runs.
-	--   onError        = function( error )   -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
+	--   onAfterMeta    = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
+	--   onBeforeMeta   = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onError        = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
 	--
 	processFile = processFile,
 
@@ -1378,14 +1402,14 @@ local lib = {
 	-- info: Table with various information, or a message if an error happened. See 'ProcessInfo' for more info.
 	--
 	-- params: Table with these fields:
-	--   code           = luaCode             -- [Required]
-	--   pathMeta       = pathForMetaprogram  -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   code           = luaString             -- [Required]
+	--   pathMeta       = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
 	--
-	--   addLineNumbers = boolean             -- [Optional] Add comments with line numbers to the output.
-	--   debug          = boolean             -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers = boolean               -- [Optional] Add comments with line numbers to the output.
+	--   debug          = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   onBeforeMeta   = function( )         -- [Optional] Called before the metaprogram runs.
-	--   onError        = function( error )   -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
+	--   onBeforeMeta   = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onError        = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--
 	processString = processString,
 

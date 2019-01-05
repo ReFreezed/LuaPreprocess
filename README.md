@@ -1,6 +1,6 @@
 # LuaPreprocess
 
-![](https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg)
+[![](https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg)](https://github.com/ReFreezed/LuaPreprocess/releases/latest)
 
 A small and straightforward Lua preprocessor featuring a simple syntax.
 Write embedded metaprograms to generate code using normal Lua inside your Lua files.

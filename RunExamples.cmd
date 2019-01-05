@@ -1,25 +1,28 @@
 @ECHO OFF
 
-SET example=examples\namedConstants.lua
+SET example=namedConstants
 ECHO.
 ECHO Running %example%...
-lua main.lua %example%2p --debug --silent
-lua          %example%
+lua main.lua examples\%example%.lua2p --debug --silent
+lua          examples\%example%.lua
 
-SET example=examples\optimizeDataAccess.lua
+SET example=optimizeDataAccess
 ECHO.
 ECHO Running %example%...
-lua main.lua %example%2p --debug --silent
-lua          %example%
+lua main.lua examples\%example%.lua2p --debug --silent
+lua          examples\%example%.lua
 
-SET example=examples\parseFile.lua
+SET example=parseFile
 ECHO.
 ECHO Running %example%...
-lua main.lua %example%2p --debug --silent
-lua          %example%
+lua main.lua examples\%example%.lua2p --debug --silent
+lua          examples\%example%.lua
 
-SET example=examples\selectiveFunctionality.lua
+SET example=selectiveFunctionality
 ECHO.
 ECHO Running %example%...
-lua main.lua %example%2p --debug --silent
-lua          %example%
+lua main.lua examples\%example%.lua2p --debug --silent
+lua          examples\%example%.lua
+
+ECHO.
+ECHO All examples finished!
