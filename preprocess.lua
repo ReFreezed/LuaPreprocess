@@ -6,7 +6,7 @@
 --=  License: MIT (see the bottom of this file)
 --=  Website: https://github.com/ReFreezed/LuaPreprocess
 --=
---=  Tested for Lua 5.1.
+--=  Tested with Lua 5.1, 5.2 and 5.3.
 --=
 --==============================================================
 
@@ -88,11 +88,13 @@
 
 --============================================================]]
 
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
 	"local","nil","not","or","repeat","return","then","true","until","while",
+	-- Lua 5.2
+	"goto",
 } for i, v in ipairs(KEYWORDS) do  KEYWORDS[v], KEYWORDS[i] = true, nil  end
 
 local PUNCTUATION = {
@@ -100,6 +102,8 @@ local PUNCTUATION = {
 	"==", "~=", "<=", ">=", "<",  ">",  "=",
 	"(",  ")",  "{",  "}",  "[",  "]",
 	";",  ":",  ",",  ".",  "..", "...",
+	-- Lua 5.3
+	"//", "&",  "|",  "~",  ">>", "<<",
 } for i, v in ipairs(PUNCTUATION) do  PUNCTUATION[v], PUNCTUATION[i] = true, nil  end
 
 local ESCAPE_SEQUENCES = {
@@ -116,6 +120,20 @@ local ESCAPE_SEQUENCES = {
 }
 
 local ERROR_UNFINISHED_VALUE = 1
+
+local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
+if not major then
+	print("[LuaPreprocess] Warning: Could not detect Lua version.")
+else
+	major = tonumber(major)
+	minor = tonumber(minor)
+end
+local IS_LUA_51          = (major == 5 and minor == 1)
+local IS_LUA_52          = (major == 5 and minor == 2)
+local IS_LUA_53          = (major == 5 and minor == 3)
+local IS_LUA_51_OR_LATER = (major == 5 and minor >= 1) or (major ~= nil and major > 5)
+local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
+local IS_LUA_53_OR_LATER = (major == 5 and minor >= 3) or (major ~= nil and major > 5)
 
 local _error                   = error
 
@@ -141,8 +159,9 @@ local escapePattern
 local F
 local getFileContents, fileExists
 local isAny
+local loadLuaString, loadLuaFile
 local maybeOutputLineNumber
-local pack
+local pack, unpack
 local parseStringlike
 local printf, printTokens
 local serialize, toLua
@@ -358,7 +377,7 @@ function tokenize(s, path, allowMetaTokens)
 
 			local repr = s:sub(reprStart, reprEnd)
 
-			local valueChunk = loadstring("return"..repr)
+			local valueChunk = loadLuaString("return"..repr)
 			if not valueChunk then
 				return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed string.")
 			end
@@ -382,7 +401,7 @@ function tokenize(s, path, allowMetaTokens)
 				end
 			end
 
-			local valueChunk = loadstring("return"..tok.representation)
+			local valueChunk = loadLuaString("return"..tok.representation)
 			if not valueChunk then
 				return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
 			end
@@ -401,11 +420,12 @@ function tokenize(s, path, allowMetaTokens)
 			tok = {type="whitespace", representation=whitespace, value=whitespace}
 
 		-- Punctuation etc.
+		-- "//", ">>", "<<",
 		elseif s:find("^%.%.%.", ptr) then
 			local repr = s:sub(ptr, ptr+2)
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
-		elseif s:find("^%.%.", ptr) or s:find("^[=~<>]=", ptr) then
+		elseif s:find("^%.%.", ptr) or s:find("^[=~<>]=", ptr) or s:find("^//", ptr) or s:find("^<<", ptr) or s:find("^>>", ptr) then
 			local repr = s:sub(ptr, ptr+1)
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
@@ -668,12 +688,48 @@ end
 
 -- values = pack( value1, ... )
 -- values.n is the amount of values. Values can be nil.
-function pack(...)
-	return {n=select("#", ...), ...}
+if IS_LUA_52_OR_LATER then
+	pack = table.pack
+else
+	function pack(...)
+		return {n=select("#", ...), ...}
+	end
+end
+
+unpack = IS_LUA_52_OR_LATER and table.unpack or _G.unpack
+
+if IS_LUA_52_OR_LATER then
+	function loadLuaString(lua, chunkName, env)
+		return load(lua, chunkName, "bt", env)
+	end
+else
+	function loadLuaString(lua, chunkName, env)
+		local chunk, err = loadstring(lua, chunkName)
+		if not chunk then  return chunk, err  end
+
+		if env then  setfenv(chunk, env)  end
+
+		return chunk
+	end
+end
+
+if IS_LUA_52_OR_LATER then
+	function loadLuaFile(path, env)
+		return loadfile(path, "bt", env)
+	end
+else
+	function loadLuaFile(path, env)
+		local chunk, err = loadfile(path)
+		if not chunk then  return chunk, err  end
+
+		if env then  setfenv(chunk, env)  end
+
+		return chunk
+	end
 end
 
 --==============================================================
---= Preprocessor Function ======================================
+--= Preprocessor Functions =====================================
 --==============================================================
 
 
@@ -721,11 +777,8 @@ metaFuncs.escapePattern = escapePattern
 function metaFuncs.run(path)
 	assertarg(1, path, "string")
 
-	local chunk, err = loadfile(path)
-	if not chunk then
-		errorline(err)
-	end
-	setfenv(chunk, metaEnv)
+	local chunk, err = loadLuaFile(path, metaEnv)
+	if not chunk then  errorline(err)  end
 
 	-- We want multiple return values while avoiding a tail call to preserve stack info.
 	local returnValues = pack(chunk())
@@ -1158,7 +1211,7 @@ local function _processFileOrString(params, isFile)
 
 			local metaBlock = concatTokens(tokensInBlock, nil, params.addLineNumbers)
 
-			if loadstring("return("..metaBlock..")") then
+			if loadLuaString("return("..metaBlock..")") then
 				table.insert(metaParts, (doOutputLua and "__LUA((" or "__VAL(("))
 				table.insert(metaParts, metaBlock)
 				table.insert(metaParts, "))\n")
@@ -1245,7 +1298,7 @@ local function _processFileOrString(params, isFile)
 	--]]
 
 	metaPathForErrorMessages = params.pathMeta or "<meta>"
-	outputFromMeta  = {}
+	outputFromMeta           = {}
 
 	if params.pathMeta then
 		local file = assert(io.open(params.pathMeta, "wb"))
@@ -1253,17 +1306,17 @@ local function _processFileOrString(params, isFile)
 		file:close()
 	end
 
-	local chunk, err = loadstring(luaMeta, metaPathForErrorMessages)
+	local chunk, err = loadLuaString(luaMeta, metaPathForErrorMessages, metaEnv)
 	if not chunk then
 		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
 		errorOnLine(metaPathForErrorMessages, tonumber(ln), nil, "%s", err)
+		return nil, err
 	end
-	setfenv(chunk, metaEnv)
 
 	if params.onBeforeMeta then  params.onBeforeMeta()  end
 
 	isRunningMeta = true
-	xpcall(chunk, function(err0)
+	local ok, err = xpcall(chunk, function(err0)
 		local path, ln, err = tostring(err0):match'^%[string "(.-)"%]:(%d+): (.*)'
 		if err then
 			errorOnLine(path, tonumber(ln), nil, "%s", err)
@@ -1272,6 +1325,11 @@ local function _processFileOrString(params, isFile)
 		end
 	end)
 	isRunningMeta = false
+
+	if not ok then
+		-- Note: The caller should clean up metaPathForErrorMessages etc. on error.
+		return nil, err
+	end
 
 	if not isDebug and params.pathMeta then
 		os.remove(params.pathMeta)
@@ -1300,7 +1358,7 @@ local function _processFileOrString(params, isFile)
 	-- Write output file.
 	----------------------------------------------------------------
 
-	pathOut = isFile and params.pathOut or "<output>"
+	local pathOut = isFile and params.pathOut or "<output>"
 
 	if isFile then
 		local file = assert(io.open(pathOut, "wb"))
@@ -1310,10 +1368,11 @@ local function _processFileOrString(params, isFile)
 	end
 
 	-- Test if the output is valid Lua.
-	local chunk, err = loadstring(lua, pathOut)
+	local chunk, err = loadLuaString(lua, pathOut)
 	if not chunk then
 		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
 		errorOnLine(pathOut, tonumber(ln), nil, "%s", err)
+		return nil, err
 	end
 
 	-- :ProcessInfo
@@ -1337,6 +1396,7 @@ end
 
 local function processFileOrString(params, isFile)
 	local returnValues = nil
+	local err          = nil
 
 	isDebug = params.debug
 	onError = function(_err)
@@ -1406,7 +1466,7 @@ local lib = {
 	-- processString()
 	-- Process Lua code.
 	--
-	-- code, info = processString( params )
+	-- luaString, info = processString( params )
 	-- info: Table with various information, or a message if an error happened. See 'ProcessInfo' for more info.
 	--
 	-- params: Table with these fields:

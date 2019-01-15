@@ -5,7 +5,7 @@
 A small and straightforward Lua preprocessor featuring a simple syntax.
 Write embedded metaprograms to generate code using normal Lua inside your Lua files.
 
-*LuaPreprocess* is written in pure Lua 5.1.
+*LuaPreprocess* is written in pure Lua.
 [The library](preprocess.lua) is a single file with no external dependencies.
 [MIT license](LICENSE.txt).
 A separate [command line program](main.lua) is available too.
@@ -66,7 +66,7 @@ See the [examples folder](examples) for more.
 
 
 ## Usage
-First you of course need [Lua 5.1](https://www.lua.org/versions.html#5.1) installed on your system. (Binaries can be
+First you of course need [Lua](https://www.lua.org/versions.html) installed on your system. (Binaries can be
 downloaded from [LuaBinaries via SourceForge](https://sourceforge.net/projects/luabinaries/files/5.1.5/Tools%20Executables/)
 if you don't want to, or can't, compile Lua from source. For Windows I can recommend installing
 [LuaForWindows](https://github.com/rjpcomputing/luaforwindows) which is a "batteries included" Lua package.)
