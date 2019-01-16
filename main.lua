@@ -10,7 +10,7 @@ exec lua "$0" "$@"
 --=  License: MIT (see the bottom of this file)
 --=  Website: https://github.com/ReFreezed/LuaPreprocess
 --=
---=  Tested for Lua 5.1.
+--=  Tested with Lua 5.1, 5.2 and 5.3.
 --=
 --==============================================================
 
@@ -91,6 +91,20 @@ local startClock = os.clock()
 
 local args = arg
 
+local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
+if not major then
+	print("[LuaPreprocess] Warning: Could not detect Lua version.")
+else
+	major = tonumber(major)
+	minor = tonumber(minor)
+end
+local IS_LUA_51          = (major == 5 and minor == 1)
+local IS_LUA_52          = (major == 5 and minor == 2)
+local IS_LUA_53          = (major == 5 and minor == 3)
+local IS_LUA_51_OR_LATER = (major == 5 and minor >= 1) or (major ~= nil and major > 5)
+local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
+local IS_LUA_53_OR_LATER = (major == 5 and minor >= 3) or (major ~= nil and major > 5)
+
 if not args[0] then  error("Expected to run from the Lua interpreter.")  end
 local pp = dofile((args[0]:gsub("[^/\\]+$", "preprocess.lua")))
 
@@ -107,6 +121,7 @@ local outputMeta         = false
 --==============================================================
 local errorline
 local F, formatBytes, formatInt
+local loadLuaFile
 local printf, printfNoise
 
 F = string.format
@@ -142,12 +157,28 @@ function errorline(err)
 	os.exit(1)
 end
 
+if IS_LUA_52_OR_LATER then
+	function loadLuaFile(path, env)
+		return loadfile(path, "bt", env)
+	end
+else
+	function loadLuaFile(path, env)
+		local chunk, err = loadfile(path)
+		if not chunk then  return chunk, err  end
+
+		if env then  setfenv(chunk, env)  end
+
+		return chunk
+	end
+end
+
 --==============================================================
 --= Preprocessor Script ========================================
 --==============================================================
 
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
+
 math.randomseed(os.time()) -- In case math.random() is used anywhere.
 math.random() -- Must kickstart...
 
@@ -206,14 +237,12 @@ printfNoise(("="):rep(#header))
 local messageHandler = nil
 
 if messageHandlerPath ~= "" then
-	local chunk, err = loadfile(messageHandlerPath)
+	-- Make the message handler and the metaprogram share the same environment.
+	-- This way the message handler can easily define globals that the metaprogram uses.
+	local chunk, err = loadLuaFile(messageHandlerPath, pp.metaEnvironment)
 	if not chunk then
 		errorline("Could not load message handler: "..err)
 	end
-
-	-- Make the message handler and the metaprogram share the same environment.
-	-- This way the message handler can easily define globals that the metaprogram uses.
-	setfenv(chunk, pp.metaEnvironment)
 
 	messageHandler = chunk()
 	if type(messageHandler) ~= "function" then
