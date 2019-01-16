@@ -88,7 +88,7 @@
 
 --============================================================]]
 
-local VERSION = "1.3.1"
+local VERSION = "1.4.0"
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
