@@ -88,7 +88,7 @@
 
 --============================================================]]
 
-local VERSION = "1.4.0"
+local VERSION = "1.5.0"
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
@@ -158,6 +158,7 @@ local errorIfNotRunningMeta
 local escapePattern
 local F
 local getFileContents, fileExists
+local getNextUsableToken
 local isAny
 local loadLuaString, loadLuaFile
 local maybeOutputLineNumber
@@ -505,7 +506,7 @@ function assertarg(n, v, ...)
 		if vType == select(i, ...) then  return  end
 	end
 
-	local fName   = debug.getInfo(2, "n").name
+	local fName   = debug.getinfo(2, "n").name
 	local expects = table.concat({...}, " or ")
 
 	if fName == "" then  fName = "?"  end
@@ -726,6 +727,16 @@ else
 
 		return chunk
 	end
+end
+
+-- token, index = getNextUsableToken( tokens, startIndex [, maxIndex=#tokens ] )
+function getNextUsableToken(tokens, i, iEnd)
+	for i = i, math.min((iEnd or math.huge), #tokens) do
+		if not isAny(tokens[i].type, "whitespace","comment") then
+			return tokens[i], i
+		end
+	end
+	return nil
 end
 
 --==============================================================
@@ -1062,22 +1073,16 @@ local function _processFileOrString(params, isFile)
 		end
 	end
 
-	-- local startOfLine     = true
-	local isMeta          = false
-	local isDual          = false
-	local metaStartLine   = 0
-	local bracketBalance  = 0
-
 	local tokensToProcess = {}
 	local metaParts       = {}
 
 	local tokenIndex      = 1
 	local ln              = 0
 
-	local function outputTokens(tokens)
-		if not tokens[1] then  return  end
+	local function flushTokensToProcess()
+		if not tokensToProcess[1] then  return  end
 
-		local lua = concatTokens(tokens, ln, params.addLineNumbers)
+		local lua = concatTokens(tokensToProcess, ln, params.addLineNumbers)
 		local luaMeta
 
 		if isDebug then
@@ -1087,42 +1092,107 @@ local function _processFileOrString(params, isFile)
 		end
 
 		table.insert(metaParts, luaMeta)
-		ln = tokens[#tokens].line
+		ln = tokensToProcess[#tokensToProcess].line
+
+		tokensToProcess = {}
 	end
 
-	while true do
-		local tok = tokens[tokenIndex]
-		if not tok then  break  end
+	local function outputFinalDualValueStatement(metaLineStartIndex)
+		-- We expect the statement to look like any of these:
+		-- !!local x = ...
+		-- !!x = ...
 
-		local tokType = tok.type
+		-- Note: Something like the following produces a valid program, but won't work as expected:
+		-- !!local x = 1; local y = 2;
+		-- Only x will be outputted.  @Robustness: Don't allow this.
 
-		-- Meta line (or lines if extended).
-		--------------------------------
-		if isMeta then
-			if
-				(
-					(tokType == "whitespace" and tok.value:find("\n", 1, true))
-					or (tokType == "comment" and not tok.long)
+		local tok, i = getNextUsableToken(tokens, metaLineStartIndex, tokenIndex-1)
+		if not tok then
+			errorInFile(
+				luaUnprocessed, pathIn, tokens[metaLineStartIndex].position, "Parser",
+				"Unexpected end of preprocessor line."
+			)
+		end
+
+		local isLocal = (tok.type == "keyword" and tok.value == "local")
+
+		if isLocal then
+			tok, i = getNextUsableToken(tokens, i+1, tokenIndex-1)
+			if not tok then
+				errorInFile(
+					luaUnprocessed, pathIn, tokens[metaLineStartIndex].position, "Parser",
+					"Unexpected end of preprocessor line."
 				)
-				and bracketBalance == 0
+			end
+		end
+
+		if tok.type ~= "identifier" then
+			errorInFile(
+				luaUnprocessed, pathIn, tok.position, "Parser",
+				"Expected an identifier."
+			)
+		end
+
+		local ident = tok.value
+
+		tok, i = getNextUsableToken(tokens, i+1, tokenIndex-1)
+		if not tok then
+			errorInFile(
+				luaUnprocessed, pathIn, tokens[metaLineStartIndex].position, "Parser",
+				"Unexpected end of preprocessor line."
+			)
+		elseif not (tok.type == "punctuation" and tok.value == "=") then
+			errorInFile(
+				luaUnprocessed, pathIn, tok.position, "Parser",
+				"Preprocessor line must be an assignment."
+			)
+		end
+
+		if not getNextUsableToken(tokens, i+1, tokenIndex-1) then
+			errorInFile(
+				luaUnprocessed, pathIn, tok.position, "Parser",
+				"Unexpected end of preprocessor line."
+			)
+		end
+
+		table.insert(metaParts, '__LUA"')
+		if isLocal then  table.insert(metaParts, 'local ')  end
+		table.insert(metaParts, ident)
+		table.insert(metaParts, ' = "__VAL(')
+		table.insert(metaParts, ident)
+		table.insert(metaParts, ')__LUA"\\n"\n')
+
+		flushTokensToProcess()
+	end
+
+	-- Note: Can be multiple lines if extended.
+	local function processMetaLine(isDual, metaStartLine)
+		local metaLineStartIndex = tokenIndex
+		local bracketBalance     = 0
+
+		while true do
+			local tok = tokens[tokenIndex]
+			if not tok then  break  end
+
+			local tokType = tok.type
+
+			if
+				bracketBalance == 0 and (
+					(tokType == "whitespace" and tok.value:find("\n", 1, true)) or
+					(tokType == "comment"    and not tok.long)
+				)
 			then
 				if tokType == "comment" then
 					table.insert(metaParts, tok.representation)
-					if isDual then  table.insert(tokensToProcess, tok)  end
 				else
 					table.insert(metaParts, "\n")
-					if isDual then  table.insert(tokensToProcess, {type="whitespace", value="\n", representation="\n"})  end
 				end
 
 				if isDual then
-					outputTokens(tokensToProcess)
-					tokensToProcess = {}
+					outputFinalDualValueStatement(metaLineStartIndex)
 				end
 
-				-- startOfLine    = true
-				isMeta         = false
-				isDual         = false
-				bracketBalance = 0
+				break
 
 			elseif tokType == "pp_entry" then
 				errorInFile(
@@ -1134,9 +1204,6 @@ local function _processFileOrString(params, isFile)
 
 			else
 				table.insert(metaParts, tok.representation)
-				if isDual then
-					table.insert(tokensToProcess, tok)
-				end
 
 				if tokType == "punctuation" and isAny(tok.value, "(","{","[") then
 					bracketBalance = bracketBalance+1
@@ -1155,6 +1222,16 @@ local function _processFileOrString(params, isFile)
 				end
 			end
 
+			tokenIndex = tokenIndex+1
+		end
+	end
+
+	while true do
+		local tok = tokens[tokenIndex]
+		if not tok then  break  end
+
+		local tokType = tok.type
+
 		-- Meta block or start of meta line.
 		--------------------------------
 
@@ -1162,7 +1239,7 @@ local function _processFileOrString(params, isFile)
 		-- !( function sum(a, b) return a+b; end )
 		-- local text = !("Hello, mr. "..getName())
 		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
-		elseif
+		if
 			tokType == "pp_entry"
 			and tokens[tokenIndex+1]
 			and tokens[tokenIndex+1].type == "punctuation"
@@ -1174,10 +1251,7 @@ local function _processFileOrString(params, isFile)
 			local doOutputLua = tok.double
 			tokenIndex = tokenIndex+2 -- Jump past "!(" or "!!(".
 
-			if tokensToProcess[1] then
-				outputTokens(tokensToProcess)
-				tokensToProcess = {}
-			end
+			flushTokensToProcess()
 
 			local tokensInBlock = {}
 			local depth         = 1
@@ -1244,48 +1318,22 @@ local function _processFileOrString(params, isFile)
 		-- local bar = foo..!(foo)
 		--
 		elseif tokType == "pp_entry" then
-		-- elseif startOfLine and tokType == "pp_entry" then
-			isMeta        = true
-			isDual        = tok.double
-			metaStartLine = tok.line
+			flushTokensToProcess()
 
-			if tokensToProcess[1] then
-				outputTokens(tokensToProcess)
-				tokensToProcess = {}
-			end
-
-		elseif tokType == "pp_entry" then
-			if tok.double then
-				errorInFile(luaUnprocessed, pathIn, tok.position, "Parser", "Unexpected double preprocessor token.")
-			else
-				errorInFile(luaUnprocessed, pathIn, tok.position, "Parser", "Unexpected preprocessor token.")
-			end
+			tokenIndex = tokenIndex+1
+			processMetaLine(tok.double, tok.line)
 
 		-- Non-meta.
 		--------------------------------
-
-		--[[ Potential start of meta line. (Must be at the start of the line, possibly after whitespace.)  UPDATE: No longer true.
-		elseif tokType == "whitespace" or (tokType == "comment" and not tok.long) then
-			table.insert(tokensToProcess, tok)
-
-			if not (tokType == "whitespace" and not tok.value:find("\n", 1, true)) then
-				startOfLine = true
-			end
-		--]]
-
 		else
 			table.insert(tokensToProcess, tok)
-			-- startOfLine = false
 		end
 		--------------------------------
 
 		tokenIndex = tokenIndex+1
 	end
 
-	if tokensToProcess[1] then
-		outputTokens(tokensToProcess)
-		tokensToProcess = {}
-	end
+	flushTokensToProcess()
 
 	-- Run metaprogram.
 	--==============================================================
