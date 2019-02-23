@@ -281,8 +281,8 @@ function parseStringlike(s, ptr)
 	return tok, ptr
 end
 
--- tokens = tokenize( lua, filePath [, allowPreprocessorTokens=false ] )
-function tokenize(s, path, allowMetaTokens)
+-- tokens = tokenize( lua, filePath, allowBacktickStrings [, allowPreprocessorTokens=false ] )
+function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 	local tokens = {}
 	local ptr    = 1
 	local ln     = 1
@@ -412,6 +412,18 @@ function tokenize(s, path, allowMetaTokens)
 
 			tok.type  = "string"
 			tok.value = v
+
+		-- Backtick string.
+		elseif allowBacktickStrings and s:find("^`", ptr) then
+			local i1, i2, v = s:find("^`([^`]*)`", ptr)
+			if not i2 then
+				return nil, errorInFile(s, path, ptr, "Tokenizer", "Unfinished backtick string.")
+			end
+
+			local repr = F("%q", v)
+
+			ptr = i2+1
+			tok = {type="string", representation=repr, value=v, long=false}
 
 		-- Whitespace.
 		elseif s:find("^%s", ptr) then
@@ -845,7 +857,7 @@ end
 --   tokens, error = tokenize( luaString [, allowPreprocessorTokens=false ] )
 --   token = { type=tokenType, representation=representation, value=value, line=lineNumber, lineEnd=lineNumber, position=bytePosition, ... }
 function metaFuncs.tokenize(lua, allowMetaTokens)
-	local tokens, err = tokenize(lua, "<string>", allowMetaTokens)
+	local tokens, err = tokenize(lua, "<string>", false, allowMetaTokens)
 	return tokens, err
 end
 
@@ -1052,7 +1064,7 @@ local function _processFileOrString(params, isFile)
 		luaUnprocessed = rest
 	end
 
-	local tokens    = tokenize(luaUnprocessed, pathIn, true)
+	local tokens    = tokenize(luaUnprocessed, pathIn, params.backtickStrings, true)
 	local lastToken = tokens[#tokens]
 	-- printTokens(tokens)
 
@@ -1498,16 +1510,18 @@ local lib = {
 	-- error: Error message, or nil if no error happened.
 	--
 	-- params: Table with these fields:
-	--   pathIn         = pathToInputFile       -- [Required]
-	--   pathMeta       = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
-	--   pathOut        = pathToOutputFile      -- [Required]
+	--   pathIn          = pathToInputFile       -- [Required]
+	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   pathOut         = pathToOutputFile      -- [Required]
 	--
-	--   addLineNumbers = boolean               -- [Optional] Add comments with line numbers to the output.
-	--   debug          = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
+	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   onAfterMeta    = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
-	--   onBeforeMeta   = function( )           -- [Optional] Called before the metaprogram runs.
-	--   onError        = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
+	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks.
+	--
+	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
+	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
 	--
 	processFile = processFile,
 
@@ -1518,14 +1532,16 @@ local lib = {
 	-- info: Table with various information, or a message if an error happened. See 'ProcessInfo' for more info.
 	--
 	-- params: Table with these fields:
-	--   code           = luaString             -- [Required]
-	--   pathMeta       = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   code            = luaString             -- [Required]
+	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
 	--
-	--   addLineNumbers = boolean               -- [Optional] Add comments with line numbers to the output.
-	--   debug          = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
+	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   onBeforeMeta   = function( )           -- [Optional] Called before the metaprogram runs.
-	--   onError        = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
+	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks.
+	--
+	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--
 	processString = processString,
 
