@@ -4,4 +4,6 @@
 !/test.lua2p
 
 /examples/*.lua
+!/examples/*.output.lua
+
 /local/
