@@ -15,7 +15,7 @@ exec lua "$0" "$@"
 --==============================================================
 
 	Script usage:
-		lua main.lua [options] [--] filepath1 [filepath2 ...]
+		lua preprocess-cl.lua [options] [--] filepath1 [filepath2 ...]
 
 	Options:
 		--handler=pathToMessageHandler

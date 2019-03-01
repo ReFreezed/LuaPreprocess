@@ -1,1 +1,1 @@
-@lua "%~dp0main.lua" %*
+@lua "%~dp0preprocess-cl.lua" %*

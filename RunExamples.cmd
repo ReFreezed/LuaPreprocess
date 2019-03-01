@@ -2,7 +2,7 @@
 
 FOR /R examples %%G IN (*.lua2p) DO (
 	ECHO. & ECHO Processing example '%%~nxG'...
-	lua main.lua "%%G" --debug --silent
+	lua preprocess-cl.lua "%%G" --debug --silent
 	lua "%%~dpnG.lua"
 )
 

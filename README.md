@@ -8,7 +8,7 @@ Write embedded metaprograms to generate code using normal Lua inside your Lua fi
 *LuaPreprocess* is written in pure Lua.
 [The library](preprocess.lua) is a single file with no external dependencies.
 [MIT license](LICENSE.txt).
-A separate [command line program](main.lua) is available too.
+A separate [command line program](preprocess-cl.lua) is available too.
 
 - [Example program](#example-program)
 - [Usage](#usage)
@@ -101,11 +101,11 @@ Preprocess.cmd [options] filepath1 [filepath2 ...]
 
 #### Any System
 ```batch
-lua main.lua [options] filepath1 [filepath2 ...]
+lua preprocess-cl.lua [options] filepath1 [filepath2 ...]
 ```
 
 If a filepath is, for example, `C:/MyApp/app.lua2p` then *LuaPreprocess* will write the processed file to `C:/MyApp/app.lua`.
 
-See the top of [main.lua](main.lua) and [preprocess.lua](preprocess.lua) for the options and more documentation.
+See the top of [preprocess-cl.lua](preprocess-cl.lua) and [preprocess.lua](preprocess.lua) for the options and more documentation.
 
 
