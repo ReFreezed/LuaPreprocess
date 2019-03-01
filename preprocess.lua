@@ -71,7 +71,7 @@
 	- getFileContents, fileExists
 	- printf
 	- run
-	- tokenize, newToken, concatTokens
+	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken
 	- toLua, serialize
 	Only in metaprogram:
 	- outputValue, outputLua
@@ -118,6 +118,8 @@ local ESCAPE_SEQUENCES = {
 	["\""] = [[\"]],
 	["\'"] = [[\']],
 }
+
+local USELESS_TOKENS = {whitespace=true, comment=true}
 
 local ERROR_UNFINISHED_VALUE = 1
 
@@ -175,7 +177,7 @@ function printf(s, ...)
 end
 function printTokens(tokens, filter)
 	for i, tok in ipairs(tokens) do
-		if not (filter and (tok.type == "whitespace" or tok.type == "comment")) then
+		if not (filter and USELESS_TOKENS[tok.type]) then
 			printf("%d  %-12s '%s'", i, tok.type, (F("%q", tostring(tok.value)):sub(2, -2):gsub("\\\n", "\\n")))
 		end
 	end
@@ -642,7 +644,7 @@ function escapePattern(s)
 end
 
 function maybeOutputLineNumber(parts, tok, lastLn, fromMetaToOutput)
-	if tok.line == lastLn or tok.type == "whitespace" or tok.type == "comment" then  return lastLn  end
+	if tok.line == lastLn or USELESS_TOKENS[tok.type] then  return lastLn  end
 
 	-- if fromMetaToOutput then
 	-- 	table.insert(parts, '__LUA"--[[@'..tok.line..']]"\n')
@@ -744,7 +746,7 @@ end
 -- token, index = getNextUsableToken( tokens, startIndex [, maxIndex=#tokens ] )
 function getNextUsableToken(tokens, i, iEnd)
 	for i = i, math.min((iEnd or math.huge), #tokens) do
-		if not isAny(tokens[i].type, "whitespace","comment") then
+		if not USELESS_TOKENS[tokens[i].type] then
 			return tokens[i], i
 		end
 	end
@@ -859,6 +861,52 @@ end
 function metaFuncs.tokenize(lua, allowMetaTokens)
 	local tokens, err = tokenize(lua, "<string>", false, allowMetaTokens)
 	return tokens, err
+end
+
+-- removeUselessTokens()
+--   Remove whitespace and comment tokens.
+--   removeUselessTokens( tokens )
+function metaFuncs.removeUselessTokens(tokens)
+	local len    = #tokens
+	local offset = 0
+
+	for i, tok in ipairs(tokens) do
+		if USELESS_TOKENS[tok.type] then
+			offset = offset-1
+		else
+			tokens[i+offset] = tok
+		end
+	end
+
+	for i = len+offset+1, len do
+		tokens[i] = nil
+	end
+end
+
+-- eachToken()
+--   Loop though tokens.
+--   for index, token in eachToken( tokens [, ignoreUselessTokens=false ] ) do
+local function getNextUsefulToken(tokens, i)
+	while true do
+		i = i+1
+		local tok = tokens[i]
+		if not tok                      then  return         end
+		if not USELESS_TOKENS[tok.type] then  return i, tok  end
+	end
+end
+function metaFuncs.eachToken(tokens, ignoreUselessTokens)
+	if ignoreUselessTokens then
+		return getNextUsefulToken, tokens, 0
+	else
+		return ipairs(tokens)
+	end
+end
+
+-- isToken()
+--   Check if a token is of a specific type, optionally also check it's value.
+--   bool = isToken( token, tokenType [, tokenValue=any ] )
+function metaFuncs.isToken(tok, tokType, v)
+	return tok.type == tokType and (v == nil or tok.value == v)
 end
 
 -- newToken()
@@ -1025,7 +1073,7 @@ local function getLineCountWithCode(tokens)
 	local lastLine  = 0
 
 	for _, tok in ipairs(tokens) do
-		if not (tok.type == "comment" or tok.type == "whitespace") and tok.lineEnd > lastLine then
+		if not USELESS_TOKENS[tok.type] and tok.lineEnd > lastLine then
 			lineCount = lineCount+(tok.lineEnd-tok.line+1)
 			lastLine  = tok.lineEnd
 		end
