@@ -61,6 +61,40 @@ local text = !("Precalculated hash: "..getHash())
 !!("myRandomGlobal"..math.random(9)) = "foo"
 ```
 
+#### Output
+```lua
+-- Normal Lua.
+local n = 0
+doSomething()
+
+-- Preprocessor lines.
+initGame()
+enableCheats()
+
+function doNetworkStuff()
+	local success = connectToServer()
+	if success then  return "Connected!"  end
+	local success = connectToServer()
+	if success then  return "Connected!"  end
+	local success = connectToServer()
+	if success then  return "Connected!"  end
+
+	return "Failed to connect after 3 tries"
+end
+
+-- Extended preprocessor line. (Lines are consumed until brackets
+-- are balanced when the end of the line is reached.)
+function newEntity() return {__name="Entity",x=0,y=0} end
+
+-- Preprocessor block.
+
+-- Preprocessor inline block. (Expression that returns a value.)
+local text = "Precalculated hash: C62D9E6C179835E2D4D2F4613BA054B5948D00E7"
+
+-- Preprocessor inline block variant. (Expression that returns a Lua string.)
+myRandomGlobal4 = "foo"
+```
+
 See the [examples folder](examples) for more.
 
 
