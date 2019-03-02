@@ -10,9 +10,55 @@
 --=
 --==============================================================
 
-	-- Metaprogram example:
+	API:
 
-	-- The exclamation mark (!) is used to indicate what code is part of the metaprogram.
+	Global functions in metaprograms:
+	- escapePattern
+	- getFileContents, fileExists
+	- printf
+	- run
+	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken
+	- toLua, serialize
+	Only in metaprogram:
+	- outputValue, outputLua
+
+	Search this file for 'EnvironmentTable' for more info.
+
+	Exported stuff from the library:
+	- (all the functions above)
+	- VERSION
+	- metaEnvironment
+	- processFile, processString
+
+	Search this file for 'ExportTable' for more info.
+
+----------------------------------------------------------------
+
+	How to metaprogram:
+
+	The exclamation mark (!) is used to indicate what code is part
+	of the metaprogram. There are 4 ways to write metaprogram code:
+
+	!...     The line will simply run during preprocessing. The line can span over multiple actual lines if it contains brackets.
+	!!...    The line will appear in both the metaprogram and the final program. The line must be an assignment.
+	!(...)   The result of the parenthesis will be outputted as a literal if it's an expression, otherwise it'll just run.
+	!!(...)  The expression in the parenthesis will be outputted as Lua code. The expression must result in a string.
+
+	Short examples:
+
+	!if not isDeveloper then
+		sendTelemetry()
+	!end
+
+	!!local tau = 2*math.pi -- The expression will be evaluated in the metaprogram and the result will appear in the final program as a literal.
+
+	local bigNumber = !(5^10)
+
+	local font = !!(isDeveloper and "loadDevFont()" or "loadUserFont()")
+
+----------------------------------------------------------------
+
+	-- Example program:
 
 	-- Normal Lua.
 	local n = 0
@@ -63,28 +109,6 @@
 	-- while "!(func();)" simply translates into "func();" (because "outputValue(func();)" would be invalid Lua code).
 	-- Though in this specific case a preprocessor line would be nicer:
 	!func()
-
-----------------------------------------------------------------
-
-	Global functions in metaprograms:
-	- escapePattern
-	- getFileContents, fileExists
-	- printf
-	- run
-	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken
-	- toLua, serialize
-	Only in metaprogram:
-	- outputValue, outputLua
-
-	Search this file for 'EnvironmentTable' for more info.
-
-	Exported stuff from the library:
-	- (all the functions above)
-	- VERSION
-	- metaEnvironment
-	- processFile, processString
-
-	Search this file for 'ExportTable' for more info.
 
 --============================================================]]
 

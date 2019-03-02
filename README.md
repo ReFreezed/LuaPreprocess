@@ -18,7 +18,7 @@ A separate [command line program](preprocess-cl.lua) is available too.
 
 
 ## Example Program
-The exclamation mark (*!*) is used to indicate what code is part of the metaprogram.
+The exclamation mark (*!*) is used to indicate what code is part of the metaprogram. ([Screenshot](example.png))
 
 ```lua
 -- Normal Lua.
