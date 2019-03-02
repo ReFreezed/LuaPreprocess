@@ -185,9 +185,11 @@ local escapePattern
 local F
 local getFileContents, fileExists
 local getNextUsableToken
+local insertTokenRepresentations
 local isAny
+local isToken
 local loadLuaString, loadLuaFile
-local maybeOutputLineNumber
+local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
 local parseStringlike
 local printf, printTokens
@@ -515,6 +517,12 @@ function concatTokens(tokens, lastLn, addLineNumbers)
 	return table.concat(parts)
 end
 
+function insertTokenRepresentations(parts, tokens, i1, i2)
+	for i = i1, i2 do
+		table.insert(parts, tokens[i].representation)
+	end
+end
+
 function getFileContents(path, isTextFile)
 	assertarg(1, path,       "string")
 	assertarg(2, isTextFile, "boolean","nil")
@@ -667,16 +675,29 @@ function escapePattern(s)
 	return (s:gsub("[-+*^?$.%%()[%]]", "%%%0"))
 end
 
+function outputLineNumber(parts, ln)
+	table.insert(parts, "--[[@")
+	table.insert(parts, ln)
+	table.insert(parts, "]]")
+end
+function maybeOutputLineNumber(parts, tok, lastLn)
+	if tok.line == lastLn or USELESS_TOKENS[tok.type] then  return lastLn  end
+
+	outputLineNumber(parts, tok.line)
+	return tok.line
+end
+--[=[
 function maybeOutputLineNumber(parts, tok, lastLn, fromMetaToOutput)
 	if tok.line == lastLn or USELESS_TOKENS[tok.type] then  return lastLn  end
 
-	-- if fromMetaToOutput then
-	-- 	table.insert(parts, '__LUA"--[[@'..tok.line..']]"\n')
-	-- else
+	if fromMetaToOutput then
+		table.insert(parts, '__LUA"--[[@'..tok.line..']]"\n')
+	else
 		table.insert(parts, "--[[@"..tok.line.."]]")
-	-- end
+	end
 	return tok.line
 end
+]=]
 
 function isAny(v, ...)
 	for i = 1, select("#", ...) do
@@ -767,14 +788,27 @@ else
 	end
 end
 
--- token, index = getNextUsableToken( tokens, startIndex [, maxIndex=#tokens ] )
-function getNextUsableToken(tokens, i, iEnd)
-	for i = i, math.min((iEnd or math.huge), #tokens) do
+-- token, index = getNextUsableToken( tokens, startIndex [, indexLimit, direction=1 ] )
+function getNextUsableToken(tokens, i, iLimit, dir)
+	dir = dir or 1
+
+	iLimit
+		=   dir < 0
+		and math.max((iLimit or 1), 1)
+		or  math.min((iLimit or math.huge), #tokens)
+
+	for i = i, iLimit, dir do
 		if not USELESS_TOKENS[tokens[i].type] then
 			return tokens[i], i
 		end
 	end
+
 	return nil
+end
+
+-- bool = isToken( token, tokenType [, tokenValue=any ] )
+function isToken(tok, tokType, v)
+	return tok.type == tokType and (v == nil or tok.value == v)
 end
 
 --==============================================================
@@ -819,6 +853,11 @@ metaFuncs.serialize = serialize
 --   Escape a string so it can be used in a pattern as plain text.
 --   escapedString = escapePattern( string )
 metaFuncs.escapePattern = escapePattern
+
+-- isToken()
+--   Check if a token is of a specific type, optionally also check it's value.
+--   bool = isToken( token, tokenType [, tokenValue=any ] )
+metaFuncs.isToken = isToken
 
 -- run()
 --   Execute a Lua file. Similar to dofile().
@@ -924,13 +963,6 @@ function metaFuncs.eachToken(tokens, ignoreUselessTokens)
 	else
 		return ipairs(tokens)
 	end
-end
-
--- isToken()
---   Check if a token is of a specific type, optionally also check it's value.
---   bool = isToken( token, tokenType [, tokenValue=any ] )
-function metaFuncs.isToken(tok, tokType, v)
-	return tok.type == tokType and (v == nil or tok.value == v)
 end
 
 -- newToken()
@@ -1151,7 +1183,7 @@ local function _processFileOrString(params, isFile)
 	--==============================================================
 
 	for _, tok in ipairs(tokens) do
-		if tok.type == "pp_entry" then
+		if isToken(tok, "pp_entry") then
 			hasPreprocessorCode = true
 			break
 		end
@@ -1181,36 +1213,35 @@ local function _processFileOrString(params, isFile)
 		tokensToProcess = {}
 	end
 
-	local function outputFinalDualValueStatement(metaLineStartIndex)
+	local function outputFinalDualValueStatement(metaLineIndexStart, metaLineIndexEnd)
 		-- We expect the statement to look like any of these:
 		-- !!local x = ...
 		-- !!x = ...
 
-		-- Note: Something like the following produces a valid program, but won't work as expected:
-		-- !!local x = 1; local y = 2;
-		-- Only x will be outputted.  @Robustness: Don't allow this.
-
-		local tok, i = getNextUsableToken(tokens, metaLineStartIndex, tokenIndex-1)
+		-- Check whether local or not.
+		local tok, i = getNextUsableToken(tokens, metaLineIndexStart, metaLineIndexEnd)
 		if not tok then
 			errorInFile(
-				luaUnprocessed, pathIn, tokens[metaLineStartIndex].position, "Parser",
+				luaUnprocessed, pathIn, tokens[metaLineIndexStart].position, "Parser",
 				"Unexpected end of preprocessor line."
 			)
 		end
 
-		local isLocal = (tok.type == "keyword" and tok.value == "local")
+		local isLocal = isToken(tok, "keyword", "local")
 
 		if isLocal then
-			tok, i = getNextUsableToken(tokens, i+1, tokenIndex-1)
+			tok, i = getNextUsableToken(tokens, i+1, metaLineIndexEnd)
 			if not tok then
 				errorInFile(
-					luaUnprocessed, pathIn, tokens[metaLineStartIndex].position, "Parser",
+					luaUnprocessed, pathIn, tokens[metaLineIndexStart].position, "Parser",
 					"Unexpected end of preprocessor line."
 				)
 			end
 		end
 
-		if tok.type ~= "identifier" then
+		-- Check for identifier.
+		-- @Incomplete: Support multiple assignments. :MultipleAssignments
+		if not isToken(tok, "identifier") then
 			errorInFile(
 				luaUnprocessed, pathIn, tok.position, "Parser",
 				"Expected an identifier."
@@ -1219,28 +1250,65 @@ local function _processFileOrString(params, isFile)
 
 		local ident = tok.value
 
-		tok, i = getNextUsableToken(tokens, i+1, tokenIndex-1)
+		-- Check for "=".
+		tok, i = getNextUsableToken(tokens, i+1, metaLineIndexEnd)
 		if not tok then
 			errorInFile(
-				luaUnprocessed, pathIn, tokens[metaLineStartIndex].position, "Parser",
+				luaUnprocessed, pathIn, tokens[metaLineIndexStart].position, "Parser",
 				"Unexpected end of preprocessor line."
 			)
-		elseif not (tok.type == "punctuation" and tok.value == "=") then
+		elseif isToken(tok, "punctuation", ",") then
+			-- :MultipleAssignments
+			errorInFile(
+				luaUnprocessed, pathIn, tok.position, "Parser",
+				"Preprocessor line must be a single assignment. (Multiple assignments are not supported.)"
+			)
+		elseif not isToken(tok, "punctuation", "=") then
 			errorInFile(
 				luaUnprocessed, pathIn, tok.position, "Parser",
 				"Preprocessor line must be an assignment."
 			)
 		end
 
-		if not getNextUsableToken(tokens, i+1, tokenIndex-1) then
+		local indexAfterEqualSign = i+1
+
+		if not getNextUsableToken(tokens, indexAfterEqualSign, metaLineIndexEnd) then
 			errorInFile(
 				luaUnprocessed, pathIn, tok.position, "Parser",
 				"Unexpected end of preprocessor line."
 			)
 		end
 
+		-- Check if the rest of the line is an expression.
+		if true then
+			local lastUsableToken, lastUsableIndex = getNextUsableToken(tokens, metaLineIndexEnd+1, 1, -1)
+			local parts = {}
+
+			table.insert(parts, "return (")
+			if isToken(lastUsableToken, "punctuation", ";") then
+				insertTokenRepresentations(parts, tokens, indexAfterEqualSign, lastUsableIndex-1)
+			else
+				insertTokenRepresentations(parts, tokens, indexAfterEqualSign, metaLineIndexEnd)
+			end
+			table.insert(parts, "\n)")
+
+			if not loadstring(table.concat(parts)) then
+				errorInFile(
+					luaUnprocessed, pathIn, tokens[metaLineIndexStart].position, "Parser",
+					"Dual code line must be a single assignment statement."
+				)
+			end
+		end
+
+		-- Output.
 		table.insert(metaParts, '__LUA"')
+
+		if params.addLineNumbers then
+			outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
+		end
+
 		if isLocal then  table.insert(metaParts, 'local ')  end
+
 		table.insert(metaParts, ident)
 		table.insert(metaParts, ' = "__VAL(')
 		table.insert(metaParts, ident)
@@ -1251,7 +1319,7 @@ local function _processFileOrString(params, isFile)
 
 	-- Note: Can be multiple lines if extended.
 	local function processMetaLine(isDual, metaStartLine)
-		local metaLineStartIndex = tokenIndex
+		local metaLineIndexStart = tokenIndex
 		local bracketBalance     = 0
 
 		while true do
@@ -1273,7 +1341,7 @@ local function _processFileOrString(params, isFile)
 				end
 
 				if isDual then
-					outputFinalDualValueStatement(metaLineStartIndex)
+					outputFinalDualValueStatement(metaLineIndexStart, tokenIndex-1)
 				end
 
 				break
@@ -1323,12 +1391,7 @@ local function _processFileOrString(params, isFile)
 		-- !( function sum(a, b) return a+b; end )
 		-- local text = !("Hello, mr. "..getName())
 		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
-		if
-			tokType == "pp_entry"
-			and tokens[tokenIndex+1]
-			and tokens[tokenIndex+1].type == "punctuation"
-			and tokens[tokenIndex+1].value == "("
-		then
+		if tokType == "pp_entry" and tokens[tokenIndex+1] and isToken(tokens[tokenIndex+1], "punctuation", "(") then
 			local startToken  = tok
 			local startPos    = tok.position
 			local startLine   = tok.line
