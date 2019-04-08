@@ -184,6 +184,7 @@ local errorIfNotRunningMeta
 local escapePattern
 local F
 local getFileContents, fileExists
+local getLineNumber
 local getNextUsableToken
 local insertTokenRepresentations
 local isAny
@@ -365,6 +366,22 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 				end
 			end
 
+			if tok.long then
+				-- Check for nesting of [[...]], which is depricated in Lua.
+				local chunk, err = loadLuaString("--"..tok.representation)
+				if not chunk then
+					local lnInString, _err = err:match"^%[string \".-\"%]:(%d+): (.*)"
+					if not _err then
+						return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long comment.")
+					end
+
+					return nil, errorOnLine(
+						path, getLineNumber(s, reprStart)+tonumber(lnInString)-1,
+						"Tokenizer", "Malformed long comment: %s", _err
+					)
+				end
+			end
+
 			tok.type           = "comment"
 			tok.representation = s:sub(reprStart, ptr-1)
 
@@ -430,9 +447,18 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 				end
 			end
 
-			local valueChunk = loadLuaString("return"..tok.representation)
+			-- Check for nesting of [[...]], which is depricated in Lua.
+			local valueChunk, err = loadLuaString("return"..tok.representation)
 			if not valueChunk then
-				return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
+				local lnInString, _err = err:match"^%[string \".-\"%]:(%d+): (.*)"
+				if not _err then
+					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
+				end
+
+				return nil, errorOnLine(
+					path, getLineNumber(s, reprStart)+tonumber(lnInString)-1,
+					"Tokenizer", "Malformed long string: %s", _err
+				)
 			end
 
 			local v = valueChunk()
@@ -809,6 +835,11 @@ end
 -- bool = isToken( token, tokenType [, tokenValue=any ] )
 function isToken(tok, tokType, v)
 	return tok.type == tokType and (v == nil or tok.value == v)
+end
+
+function getLineNumber(s, ptr)
+	local _, nlCount = s:sub(1, ptr):gsub("\n", "\n")
+	return 1+nlCount
 end
 
 --==============================================================
