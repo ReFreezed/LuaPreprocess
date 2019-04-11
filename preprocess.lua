@@ -17,7 +17,7 @@
 	- getFileContents, fileExists
 	- printf
 	- run
-	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken
+	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
 	- toLua, serialize
 	Only in metaprogram:
 	- outputValue, outputLua
@@ -980,7 +980,7 @@ end
 -- eachToken()
 --   Loop though tokens.
 --   for index, token in eachToken( tokens [, ignoreUselessTokens=false ] ) do
-local function getNextUsefulToken(tokens, i)
+local function nextUsefulToken(tokens, i)
 	while true do
 		i = i+1
 		local tok = tokens[i]
@@ -990,10 +990,37 @@ local function getNextUsefulToken(tokens, i)
 end
 function metaFuncs.eachToken(tokens, ignoreUselessTokens)
 	if ignoreUselessTokens then
-		return getNextUsefulToken, tokens, 0
+		return nextUsefulToken, tokens, 0
 	else
 		return ipairs(tokens)
 	end
+end
+
+-- getNextUsefulToken()
+--   Get the next token that isn't a whitespace or comment. Returns nil if no more tokens are found.
+--   token, index = getNextUsefulToken( tokens, startIndex [, steps=1 ] )
+--   Specify a negative steps value to get an earlier token.
+function metaFuncs.getNextUsefulToken(tokens, i1, steps)
+	steps = (steps or 1)
+
+	local i2, dir
+	if steps == 0 then
+		return tokens[i1], i1
+	elseif steps < 0 then
+		i2, dir = 1, -1
+	else
+		i2, dir = #tokens, 1
+	end
+
+	for i = i1, i2, dir do
+		local tok = tokens[i]
+		if not USELESS_TOKENS[tok.type] then
+			steps = steps-dir
+			if steps == 0 then  return tok, i  end
+		end
+	end
+
+	return nil
 end
 
 -- newToken()
