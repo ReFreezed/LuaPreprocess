@@ -1397,18 +1397,34 @@ local function _processFileOrString(params, isFile)
 		end
 
 		-- Output.
-		table.insert(metaParts, '__LUA"')
+		if isDebug then
+			table.insert(metaParts, '__LUA("')
 
-		if params.addLineNumbers then
-			outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
+			if params.addLineNumbers then
+				outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
+			end
+
+			if isLocal then  table.insert(metaParts, 'local ')  end
+
+			table.insert(metaParts, ident)
+			table.insert(metaParts, ' = "); __VAL(')
+			table.insert(metaParts, ident)
+			table.insert(metaParts, '); __LUA("\\n")\n')
+
+		else
+			table.insert(metaParts, '__LUA"')
+
+			if params.addLineNumbers then
+				outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
+			end
+
+			if isLocal then  table.insert(metaParts, 'local ')  end
+
+			table.insert(metaParts, ident)
+			table.insert(metaParts, ' = "__VAL(')
+			table.insert(metaParts, ident)
+			table.insert(metaParts, ')__LUA"\\n"\n')
 		end
-
-		if isLocal then  table.insert(metaParts, 'local ')  end
-
-		table.insert(metaParts, ident)
-		table.insert(metaParts, ' = "__VAL(')
-		table.insert(metaParts, ident)
-		table.insert(metaParts, ')__LUA"\\n"\n')
 
 		flushTokensToProcess()
 	end
