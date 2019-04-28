@@ -1,11 +1,18 @@
-# LuaPreprocess
+<h1 align="center"><img src="logo.png" width="600" height="126" alt="LuaPreprocess" title="LuaPreprocess"></h1>
 
-[![](https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg)](https://github.com/ReFreezed/LuaPreprocess/releases/latest)
+<p align="center">
+	<a href="https://github.com/ReFreezed/LuaPreprocess/releases/latest">
+		<img src="https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg" alt="">
+	</a>
+	<a href="https://github.com/ReFreezed/LuaPreprocess/blob/master/LICENSE">
+		<img src="https://img.shields.io/github/license/ReFreezed/LuaPreprocess.svg" alt="">
+	</a>
+</p>
 
-A small and straightforward Lua preprocessor featuring a simple syntax.
+**LuaPreprocess** - a small and straightforward Lua preprocessor featuring a simple syntax.
 Write embedded metaprograms to generate code using normal Lua inside your Lua files.
 
-*LuaPreprocess* is written in pure Lua.
+LuaPreprocess is written in pure Lua.
 [The library](preprocess.lua) is a single file with no external dependencies.
 [MIT license](LICENSE.txt).
 A separate [command line program](preprocess-cl.lua) is available too.
@@ -26,17 +33,18 @@ local n = 0
 doSomething()
 
 -- Preprocessor lines.
+!local IS_DEVELOPER = true
 initGame()
 !if IS_DEVELOPER then
 	enableCheats()
 !end
 
-function doNetworkStuff()
-	!for i = 1, 3 do
-		local success = connectToServer()
-		if success then  return "Connected!"  end
-	!end
-	return "Failed to connect after 3 tries"
+function newArrayOfThreeBits()
+	return {
+		!for i = 1, 3 do
+			0,
+		!end
+	}
 end
 
 -- Extended preprocessor line. (Lines are consumed until brackets
@@ -71,15 +79,12 @@ doSomething()
 initGame()
 enableCheats()
 
-function doNetworkStuff()
-	local success = connectToServer()
-	if success then  return "Connected!"  end
-	local success = connectToServer()
-	if success then  return "Connected!"  end
-	local success = connectToServer()
-	if success then  return "Connected!"  end
-
-	return "Failed to connect after 3 tries"
+function newArrayOfThreeBits()
+	return {
+		0,
+		0,
+		0,
+	}
 end
 
 -- Extended preprocessor line. (Lines are consumed until brackets
@@ -89,13 +94,14 @@ function newEntity() return {__name="Entity",x=0,y=0} end
 -- Preprocessor block.
 
 -- Preprocessor inline block. (Expression that returns a value.)
-local text = "Precalculated hash: C62D9E6C179835E2D4D2F4613BA054B5948D00E7"
+local text = "Precalculated hash: 6CD3556DEB0DA54BCA060B4C39479839"
 
 -- Preprocessor inline block variant. (Expression that returns a Lua string.)
 myRandomGlobal4 = "foo"
 ```
 
 See the [examples folder](examples) for more.
+(See also [an example for LÖVE](https://gist.github.com/ReFreezed/be97dce6b67496b0f0c5275bf2a96d51).)
 
 
 
@@ -138,7 +144,7 @@ Preprocess.cmd [options] filepath1 [filepath2 ...]
 lua preprocess-cl.lua [options] filepath1 [filepath2 ...]
 ```
 
-If a filepath is, for example, `C:/MyApp/app.lua2p` then *LuaPreprocess* will write the processed file to `C:/MyApp/app.lua`.
+If a filepath is, for example, `C:/MyApp/app.lua2p` then LuaPreprocess will write the processed file to `C:/MyApp/app.lua`.
 
 See the top of [preprocess-cl.lua](preprocess-cl.lua) and [preprocess.lua](preprocess.lua) for the options and more documentation.
 
