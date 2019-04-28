@@ -126,6 +126,8 @@ local PUNCTUATION = {
 	"==", "~=", "<=", ">=", "<",  ">",  "=",
 	"(",  ")",  "{",  "}",  "[",  "]",
 	";",  ":",  ",",  ".",  "..", "...",
+	-- Lua 5.2
+	"::",
 	-- Lua 5.3
 	"//", "&",  "|",  "~",  ">>", "<<",
 } for i, v in ipairs(PUNCTUATION) do  PUNCTUATION[v], PUNCTUATION[i] = true, nil  end
@@ -231,7 +233,7 @@ function errorOnLine(path, ln, agent, s, ...)
 			path, ln, s:format(...)
 		)
 	end
-	onError(err, 2)
+	onError(s, 2)
 end
 function errorInFile(contents, path, ptr, agent, s, ...)
 	s = s:format(...)
@@ -258,7 +260,7 @@ function errorInFile(contents, path, ptr, agent, s, ...)
 			path, ln,        s, lastLine, ("-"):rep(col-1)
 		)
 	end
-	onError(err, 2)
+	onError(s, 2)
 
 	return s
 end
@@ -310,6 +312,15 @@ function parseStringlike(s, ptr)
 	return tok, ptr
 end
 
+local NUM_HEX_FRAC_EXP = ("^( 0x ([%dA-Fa-f]*) %.([%dA-Fa-f]+) [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
+local NUM_HEX_FRAC     = ("^( 0x ([%dA-Fa-f]*) %.([%dA-Fa-f]+)                        )"):gsub(" +", "")
+local NUM_HEX_EXP      = ("^( 0x ([%dA-Fa-f]+)                 [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
+local NUM_HEX          = ("^( 0x  [%dA-Fa-f]+                                         )"):gsub(" +", "")
+local NUM_DEC_FRAC_EXP = ("^(     %d*          %.%d+           [Ee][-+]?%d+           )"):gsub(" +", "")
+local NUM_DEC_FRAC     = ("^(     %d*          %.%d+                                  )"):gsub(" +", "")
+local NUM_DEC_EXP      = ("^(     %d+                          [Ee][-+]?%d+           )"):gsub(" +", "")
+local NUM_DEC          = ("^(     %d+                                                 )"):gsub(" +", "")
+
 -- tokens = tokenize( lua, filePath, allowBacktickStrings [, allowPreprocessorTokens=false ] )
 function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 	local tokens = {}
@@ -333,17 +344,43 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 
 		-- Number.
 		elseif s:find("^%.?%d", ptr) then
-			local           i1, i2, numStr = s:find("^(%d*%.%d+[Ee]%-?%d+)", ptr)
-			if not i1 then  i1, i2, numStr = s:find("^(%d+[Ee]%-?%d+)",      ptr)  end
-			if not i1 then  i1, i2, numStr = s:find("^(0x[%dA-Fa-f]+)",      ptr)  end
-			if not i1 then  i1, i2, numStr = s:find("^(%d*%.%d+)",           ptr)  end
-			if not i1 then  i1, i2, numStr = s:find("^(%d+)",                ptr)  end
+			local           lua52Hex, i1, i2, numStr = true,  s:find(NUM_HEX_FRAC_EXP, ptr)
+			if not i1 then  lua52Hex, i1, i2, numStr = true,  s:find(NUM_HEX_FRAC,     ptr)  end
+			if not i1 then  lua52Hex, i1, i2, numStr = true,  s:find(NUM_HEX_EXP,      ptr)  end
+			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_HEX,          ptr)  end
+			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC_FRAC_EXP, ptr)  end
+			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC_FRAC,     ptr)  end
+			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC_EXP,      ptr)  end
+			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC,          ptr)  end
 
-			if not i1 then
+			if not numStr then
 				return nil, errorInFile(s, path, ptr, "Tokenizer", "Malformed number.")
+			end
+			if s:find("^[%w_]", i2+1) then
+				-- This is actually only an error in Lua 5.1. Maybe we should issue a warning instead of an error here?
+				return nil, errorInFile(s, path, i2+1, "Tokenizer", "Malformed number.")
 			end
 
 			local n = tonumber(numStr)
+
+			-- Support hexadecimal floats in Lua 5.1.
+			if not n and lua52Hex then
+				local               _, intStr, fracStr, expStr = numStr:match(NUM_HEX_FRAC_EXP)
+				if not intStr then  _, intStr, fracStr         = numStr:match(NUM_HEX_FRAC) ; expStr  = "0"  end
+				if not intStr then  _, intStr,          expStr = numStr:match(NUM_HEX_EXP)  ; fracStr = ""   end
+				assert(intStr, numStr)
+
+				n = tonumber(intStr, 16) or 0 -- intStr may be "".
+
+				local fracValue = 1
+				for i = 1, #fracStr do
+					fracValue = fracValue/16
+					n         = n+tonumber(fracStr:sub(i, i), 16)*fracValue
+				end
+
+				n = n*2^expStr:gsub("^+", "")
+			end
+
 			if not n then
 				return nil, errorInFile(s, path, ptr, "Tokenizer", "Invalid number.")
 			end
@@ -492,7 +529,7 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 			local repr = s:sub(ptr, ptr+2)
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
-		elseif s:find("^%.%.", ptr) or s:find("^[=~<>]=", ptr) or s:find("^//", ptr) or s:find("^<<", ptr) or s:find("^>>", ptr) then
+		elseif s:find("^%.%.", ptr) or s:find("^[=~<>]=", ptr) or s:find("^::", ptr) or s:find("^//", ptr) or s:find("^<<", ptr) or s:find("^>>", ptr) then
 			local repr = s:sub(ptr, ptr+1)
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
@@ -1100,17 +1137,18 @@ function metaFuncs.newToken(tokType, ...)
 		numberFormat = numberFormat or "auto"
 
 		-- Some of these are technically multiple other tokens. We could trigger an error but ehhh...
+		-- @Incomplete: Hexadecimal floats.
 		local numStr
 			=  n            ~= n             and "0/0"
 			or n            == math.huge     and "math.huge"
-			or n            == -math.huge    and "-math.huge"
+			or n            == -math.huge    and " -math.huge" -- The space prevents an accidental comment if a "-" is right before.
 			or numberFormat == "auto"        and tostring(n)
 			or numberFormat == "integer"     and F("%d", n)
 			or numberFormat == "float"       and F("%f", n):gsub("(%d)0+$", "%1")
 			or numberFormat == "scientific"  and F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1")
 			or numberFormat == "SCIENTIFIC"  and F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1")
-			or numberFormat == "hexadecimal" and F("0x%x", n)
-			or numberFormat == "HEXADECIMAL" and F("0x%X", n)
+			or numberFormat == "hexadecimal" and (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet."))
+			or numberFormat == "HEXADECIMAL" and (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet."))
 			or error(F("Invalid number format '%s'.", numberFormat))
 
 		return {type="number", representation=numStr, value=n}
