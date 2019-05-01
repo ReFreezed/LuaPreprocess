@@ -1,4 +1,4 @@
-<h1 align="center"><img src="logo.png" width="600" height="126" alt="LuaPreprocess" title="LuaPreprocess"></h1>
+<h1 align="center"><img src="misc/logo.png" width="600" height="126" alt="LuaPreprocess" title="LuaPreprocess"></h1>
 
 <p align="center">
 	<a href="https://github.com/ReFreezed/LuaPreprocess/releases/latest">
@@ -25,7 +25,7 @@ A separate [command line program](preprocess-cl.lua) is available too.
 
 
 ## Example Program
-The exclamation mark (*!*) is used to indicate what code is part of the metaprogram. ([Screenshot](example.png))
+The exclamation mark (*!*) is used to indicate what code is part of the metaprogram. ([Screenshot](misc/example.png))
 
 ```lua
 -- Normal Lua.

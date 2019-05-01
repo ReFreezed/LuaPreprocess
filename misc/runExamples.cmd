@@ -1,4 +1,5 @@
 @ECHO OFF
+CD /D "%~dp0.."
 
 FOR /R examples %%G IN (*.lua2p) DO (
 	ECHO. & ECHO Processing example '%%~nxG'...

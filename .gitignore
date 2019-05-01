@@ -1,7 +1,7 @@
 *.sublime-*
 
-/test.*
-!/test.lua2p
+/misc/test.*
+!/misc/test.lua2p
 
 /examples/*.lua
 !/examples/*.output.lua
