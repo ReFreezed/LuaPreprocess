@@ -359,7 +359,7 @@ printfNoise(
 
 --[[!===========================================================
 
-Copyright © 2018 Marcus 'ReFreezed' Thunström
+Copyright © 2018-2019 Marcus 'ReFreezed' Thunström
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

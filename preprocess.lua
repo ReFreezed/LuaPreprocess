@@ -13,15 +13,15 @@
 	API:
 
 	Global functions in metaprograms:
+	- copyTable
 	- escapePattern
 	- getFileContents, fileExists
 	- printf
 	- run
 	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
 	- toLua, serialize
-	Only in metaprogram:
+	Only during processing:
 	- outputValue, outputLua
-
 	Search this file for 'EnvironmentTable' for more info.
 
 	Exported stuff from the library:
@@ -29,7 +29,6 @@
 	- VERSION
 	- metaEnvironment
 	- processFile, processString
-
 	Search this file for 'ExportTable' for more info.
 
 ----------------------------------------------------------------
@@ -112,6 +111,15 @@
 
 --============================================================]]
 
+
+
+--[[ Make sure the library doesn't add globals.
+setmetatable(_G, {__newindex=function(_G, k, v)
+	print(debug.traceback("WARNING: Setting global '"..tostring(k).."'.", 2))
+	rawset(_G, k, v)
+end})
+--]]
+
 local VERSION = "1.7.0"
 
 local KEYWORDS = {
@@ -163,7 +171,7 @@ local IS_LUA_51_OR_LATER = (major == 5 and minor >= 1) or (major ~= nil and majo
 local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
 local IS_LUA_53_OR_LATER = (major == 5 and minor >= 3) or (major ~= nil and major > 5)
 
-local _error                   = error
+local _error                   = error -- We redefine error() later.
 
 local metaEnv                  = nil
 
@@ -798,11 +806,12 @@ do
 	end
 
 	function copyTable(t, deep)
+		local copy = {}
+
 		if deep then
-			return deepCopy(t, {}, {})
+			return deepCopy(t, copy, {[t]=copy})
 		end
 
-		local copy = {}
 		for k, v in pairs(t) do  copy[k] = v  end
 
 		return copy
@@ -897,7 +906,7 @@ local metaFuncs = {}
 metaFuncs.printf = printf
 
 -- getFileContents()
---   Get the entire contents of a binary file or text file. Return nil and a message on error.
+--   Get the entire contents of a binary file or text file. Returns nil and a message on error.
 --   contents, error = getFileContents( path [, isTextFile=false ] )
 metaFuncs.getFileContents = getFileContents
 
@@ -926,6 +935,12 @@ metaFuncs.escapePattern = escapePattern
 --   Check if a token is of a specific type, optionally also check it's value.
 --   bool = isToken( token, tokenType [, tokenValue=any ] )
 metaFuncs.isToken = isToken
+
+-- copyTable()
+--   Copy a table, optionally recursively (deep copy).
+--   Multiple references to the same table and self-references are preserved during deep copying.
+--   copy = copyTable( table [, deep=false ] )
+metaFuncs.copyTable = copyTable
 
 -- run()
 --   Execute a Lua file. Similar to dofile().
@@ -1804,9 +1819,11 @@ for k, v in pairs(metaFuncs) do  lib[k] = v  end
 
 return lib
 
+
+
 --[[!===========================================================
 
-Copyright © 2018 Marcus 'ReFreezed' Thunström
+Copyright © 2018-2019 Marcus 'ReFreezed' Thunström
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
