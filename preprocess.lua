@@ -16,6 +16,7 @@
 	- copyTable
 	- escapePattern
 	- getFileContents, fileExists
+	- pack
 	- printf
 	- run
 	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
@@ -176,7 +177,7 @@ local _error                   = error -- We redefine error() later.
 local metaEnv                  = nil
 
 local isDebug                  = false
-local onError                  = _error
+local currentErrorHandler      = _error
 
 local isRunningMeta            = false
 local metaPathForErrorMessages = ""
@@ -192,7 +193,7 @@ local countString
 local error, errorline, errorOnLine, errorInFile
 local errorIfNotRunningMeta
 local escapePattern
-local F
+local F, tryToFormatError
 local getFileContents, fileExists
 local getLineNumber
 local getNextUsableToken
@@ -203,11 +204,27 @@ local loadLuaString, loadLuaFile
 local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
 local parseStringlike
-local printf, printTokens
+local printf, printTokens, printTraceback
 local serialize, toLua
 local tokenize
 
 F = string.format
+function tryToFormatError(err0)
+	local err, path, ln = nil
+
+	if type(err0) == "string" then
+		path, ln, err = err0:match'^%[string "(.-)"%]:(%d+): (.*)'
+		if not err then
+			path, ln, err = err0:match'^([%w_/.]+):(%d+): (.*)'
+		end
+	end
+
+	if err then
+		return F("Error @ %s:%s: %s", path, ln, err)
+	else
+		return "Error: "..tostring(err0)
+	end
+end
 
 function printf(s, ...)
 	print(s:format(...))
@@ -219,29 +236,35 @@ function printTokens(tokens, filter)
 		end
 	end
 end
+function printTraceback(message, level)
+	level = 1+(level or 1)
+	local s = debug.traceback(message, level)
+
+	s = s:gsub("[^\n]+", function(line)
+		line = line:gsub('^\t%[string "(.-)"%]:', "\t%1:")
+		return line
+	end)
+
+	print(s)
+end
 
 function error(err, level)
 	level = 1+(level or 1)
-	print(debug.traceback("Error: "..tostring(err), level))
-	onError(err, level)
+	printTraceback(tryToFormatError(err), level)
+	currentErrorHandler(err, level)
 end
 function errorline(err)
-	print("Error: "..tostring(err))
-	onError(err, 2)
+	print(tryToFormatError(err))
+	currentErrorHandler(err, 2)
 end
 function errorOnLine(path, ln, agent, s, ...)
+	s = s:format(...)
 	if agent then
-		printf(
-			"Error @ %s:%d: [%s] %s",
-			path, ln, agent, s:format(...)
-		)
+		printf("Error @ %s:%d: [%s] %s", path, ln, agent, s)
 	else
-		printf(
-			"Error @ %s:%d: %s",
-			path, ln, s:format(...)
-		)
+		printf("Error @ %s:%d: %s",      path, ln,        s)
 	end
-	onError(s, 2)
+	currentErrorHandler(s, 2)
 end
 function errorInFile(contents, path, ptr, agent, s, ...)
 	s = s:format(...)
@@ -268,7 +291,7 @@ function errorInFile(contents, path, ptr, agent, s, ...)
 			path, ln,        s, lastLine, ("-"):rep(col-1)
 		)
 	end
-	onError(s, 2)
+	currentErrorHandler(s, 2)
 
 	return s
 end
@@ -413,9 +436,9 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 
 			if tok.long then
 				-- Check for nesting of [[...]], which is depricated in Lua.
-				local chunk, err = loadLuaString("--"..tok.representation)
-				if not chunk then
-					local lnInString, _err = err:match"^%[string \".-\"%]:(%d+): (.*)"
+				local mainChunk, err = loadLuaString("--"..tok.representation)
+				if not mainChunk then
+					local lnInString, _err = err:match'^%[string ".-"%]:(%d+): (.*)'
 					if not _err then
 						return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long comment.")
 					end
@@ -495,7 +518,7 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 			-- Check for nesting of [[...]], which is depricated in Lua.
 			local valueChunk, err = loadLuaString("return"..tok.representation)
 			if not valueChunk then
-				local lnInString, _err = err:match"^%[string \".-\"%]:(%d+): (.*)"
+				local lnInString, _err = err:match'^%[string ".-"%]:(%d+): (.*)'
 				if not _err then
 					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
 				end
@@ -819,7 +842,7 @@ do
 end
 
 -- values = pack( value1, ... )
--- values.n is the amount of values. Values can be nil.
+-- values.n is the amount of values (which can be zero).
 if IS_LUA_52_OR_LATER then
 	pack = table.pack
 else
@@ -836,12 +859,12 @@ if IS_LUA_52_OR_LATER then
 	end
 else
 	function loadLuaString(lua, chunkName, env)
-		local chunk, err = loadstring(lua, chunkName)
-		if not chunk then  return chunk, err  end
+		local mainChunk, err = loadstring(lua, chunkName)
+		if not mainChunk then  return mainChunk, err  end
 
-		if env then  setfenv(chunk, env)  end
+		if env then  setfenv(mainChunk, env)  end
 
-		return chunk
+		return mainChunk
 	end
 end
 
@@ -851,12 +874,12 @@ if IS_LUA_52_OR_LATER then
 	end
 else
 	function loadLuaFile(path, env)
-		local chunk, err = loadfile(path)
-		if not chunk then  return chunk, err  end
+		local mainChunk, err = loadfile(path)
+		if not mainChunk then  return mainChunk, err  end
 
-		if env then  setfenv(chunk, env)  end
+		if env then  setfenv(mainChunk, env)  end
 
-		return chunk
+		return mainChunk
 	end
 end
 
@@ -942,17 +965,21 @@ metaFuncs.isToken = isToken
 --   copy = copyTable( table [, deep=false ] )
 metaFuncs.copyTable = copyTable
 
+-- values = pack( value1, ... )
+-- values.n is the amount of values (which can be zero). Alias for table.pack() in Lua 5.2+.
+metaFuncs.pack = pack
+
 -- run()
 --   Execute a Lua file. Similar to dofile().
 --   returnValue1, ... = run( path )
 function metaFuncs.run(path)
 	assertarg(1, path, "string")
 
-	local chunk, err = loadLuaFile(path, metaEnv)
-	if not chunk then  errorline(err)  end
+	local mainChunk, err = loadLuaFile(path, metaEnv)
+	if not mainChunk then  errorline(err)  end
 
 	-- We want multiple return values while avoiding a tail call to preserve stack info.
-	local returnValues = pack(chunk())
+	local returnValues = pack(mainChunk())
 	return unpack(returnValues, 1, returnValues.n)
 end
 
@@ -1628,30 +1655,17 @@ local function _processFileOrString(params, isFile)
 		file:close()
 	end
 
-	local chunk, err = loadLuaString(luaMeta, metaPathForErrorMessages, metaEnv)
-	if not chunk then
-		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
-		errorOnLine(metaPathForErrorMessages, tonumber(ln), nil, "%s", err)
-		return nil, err
+	local mainChunk, err = loadLuaString(luaMeta, metaPathForErrorMessages, metaEnv)
+	if not mainChunk then
+		local ln, _err = err:match'^%[string ".-"%]:(%d+): (.*)'
+		errorOnLine(metaPathForErrorMessages, tonumber(ln), nil, "%s", _err)
 	end
 
 	if params.onBeforeMeta then  params.onBeforeMeta()  end
 
 	isRunningMeta = true
-	local ok, err = xpcall(chunk, function(err0)
-		local path, ln, err = tostring(err0):match'^%[string "(.-)"%]:(%d+): (.*)'
-		if err then
-			errorOnLine(path, tonumber(ln), nil, "%s", err)
-		else
-			error(err0, 2)
-		end
-	end)
+	mainChunk() -- Note: The caller should clean up metaPathForErrorMessages etc. on error.
 	isRunningMeta = false
-
-	if not ok then
-		-- Note: The caller should clean up metaPathForErrorMessages etc. on error.
-		return nil, err
-	end
 
 	if not isDebug and params.pathMeta then
 		os.remove(params.pathMeta)
@@ -1690,11 +1704,10 @@ local function _processFileOrString(params, isFile)
 	end
 
 	-- Test if the output is valid Lua.
-	local chunk, err = loadLuaString(lua, pathOut)
-	if not chunk then
+	local mainChunk, err = loadLuaString(lua, pathOut)
+	if not mainChunk then
 		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
 		errorOnLine(pathOut, tonumber(ln), nil, "%s", err)
-		return nil, err
 	end
 
 	-- :ProcessInfo
@@ -1705,6 +1718,8 @@ local function _processFileOrString(params, isFile)
 		tokenCount          = tokenCount,
 		hasPreprocessorCode = hasPreprocessorCode,
 	}
+
+	if params.onDone then  params.onDone(info)  end
 
 	if isFile then
 		return info
@@ -1717,43 +1732,50 @@ local function _processFileOrString(params, isFile)
 end
 
 local function processFileOrString(params, isFile)
-	local returnValues = nil
-	local err          = nil
+	local returnValues  = nil
+	local errorToReturn = nil
 
 	isDebug = params.debug
-	onError = function(_err)
-		err = _err
-		if params.onError then  params.onError(err)  end
+	currentErrorHandler = function(err, levelFromOurError)
+		errorToReturn = err
+
+		if not levelFromOurError then
+			printTraceback(tryToFormatError(err), 2)
+		end
+
+		if params.onError then  params.onError(errorToReturn)  end
 	end
 
 	xpcall(
 		function()
 			returnValues = pack(_processFileOrString(params, isFile))
 		end,
-		onError
+		currentErrorHandler
 	)
 
 	isDebug = false
-	onError = _error
+	currentErrorHandler = _error
 
 	-- Cleanup in case an error happened.
 	isRunningMeta            = false
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
 
-	if err then
-		return nil, err
+	if errorToReturn then
+		return nil, errorToReturn
 	else
 		return unpack(returnValues, 1, returnValues.n)
 	end
 end
 
 local function processFile(params)
-	return processFileOrString(params, true)
+	local returnValues = pack(processFileOrString(params, true))
+	return unpack(returnValues, 1, returnValues.n)
 end
 
 local function processString(params)
-	return processFileOrString(params, false)
+	local returnValues = pack(processFileOrString(params, false))
+	return unpack(returnValues, 1, returnValues.n)
 end
 
 

@@ -19,9 +19,12 @@ exec lua "$0" "$@"
 
 	Options:
 		--handler=pathToMessageHandler
-			Path to a Lua file that's expected to return a function.
-			The function will be called with various messages as it's
-			first argument. (See 'Handler messages')
+			Path to a Lua file that's expected to return a function or a
+			table of functions. If it returns a function then it will be
+			called with various messages as it's first argument. If it's
+			a table, the keys should be the message names and the values
+			should be functions to handle the respective message.
+			(See 'Handler messages')
 
 		--linenumbers
 			Add comments with line numbers to the output.
@@ -61,28 +64,31 @@ exec lua "$0" "$@"
 	"init"
 		Sent before any other message.
 		Arguments:
-			message: The name of this message.
 			paths: Array of file paths to process. Paths can be added or removed freely.
 
 	"beforemeta"
 		Sent before a file's metaprogram runs.
 		Arguments:
-			message: The name of this message.
-			path: What file is being processed.
+			path: The file being processed.
 
 	"aftermeta"
 		Sent after a file's metaprogram has produced output (before the output is written to a file).
 		Arguments:
-			message: The name of this message.
-			path: What file was processed.
-			lua: String with the produced Lua code. You can modify this and return the modified string.
+			path: The file being processed.
+			luaString: The produced Lua code. You can modify this and return the modified string.
 
 	"filedone"
 		Sent after a file has finished processing and the output written to file.
 		Arguments:
-			message: The name of this message.
-			path: What file was processed.
+			path: The file being processed.
 			outputPath: Where the output of the metaprogram was written.
+			info: Info about the processed file. (See 'ProcessInfo' in preprocess.lua)
+
+	"fileerror"
+		Sent if an error happens while processing a file (right before the program quits).
+		Arguments:
+			path: The file being processed.
+			error: The error message.
 
 --============================================================]]
 
@@ -163,12 +169,12 @@ if IS_LUA_52_OR_LATER then
 	end
 else
 	function loadLuaFile(path, env)
-		local chunk, err = loadfile(path)
-		if not chunk then  return chunk, err  end
+		local mainChunk, err = loadfile(path)
+		if not mainChunk then  return mainChunk, err  end
 
-		if env then  setfenv(chunk, env)  end
+		if env then  setfenv(mainChunk, env)  end
 
-		return chunk
+		return mainChunk
 	end
 end
 
@@ -236,20 +242,52 @@ printfNoise(("="):rep(#header))
 -- Load message handler.
 local messageHandler = nil
 
+local function sendMessage(message, ...)
+	if not messageHandler then
+		return
+
+	elseif type(messageHandler) == "function" then
+		local returnValues = pp.pack(messageHandler(message, ...))
+		return unpack(returnValues, 1, returnValues.n)
+
+	elseif type(messageHandler) == "table" then
+		local _messageHandler = messageHandler[message]
+		if not _messageHandler then  return  end
+
+		local returnValues = pp.pack(_messageHandler(...))
+		return unpack(returnValues, 1, returnValues.n)
+
+	else
+		assert(false)
+	end
+end
+
 if messageHandlerPath ~= "" then
 	-- Make the message handler and the metaprogram share the same environment.
 	-- This way the message handler can easily define globals that the metaprogram uses.
-	local chunk, err = loadLuaFile(messageHandlerPath, pp.metaEnvironment)
-	if not chunk then
+	local mainChunk, err = loadLuaFile(messageHandlerPath, pp.metaEnvironment)
+	if not mainChunk then
 		errorline("Could not load message handler: "..err)
 	end
 
-	messageHandler = chunk()
-	if type(messageHandler) ~= "function" then
-		errorline(messageHandlerPath..": File did not return a message handler function.")
+	messageHandler = mainChunk()
+
+	if type(messageHandler) == "function" then
+		-- void
+	elseif type(messageHandler) == "table" then
+		for message, _messageHandler in pairs(messageHandler) do
+			if type(message) ~= "string" then
+				errorline(messageHandlerPath..": Table of handlers must only contain messages as keys.")
+			elseif type(_messageHandler) ~= "function" then
+				errorline(messageHandlerPath..": Table of handlers must only contain functions as values.")
+			end
+		end
+	else
+		errorline(messageHandlerPath..": File did not return a function or table.")
 	end
-	messageHandler("init", paths)
 end
+
+sendMessage("init", paths)
 
 if not paths[1] then
 	errorline("No path(s) specified.")
@@ -295,28 +333,38 @@ for _, path in ipairs(paths) do
 		debug          = isDebug,
 		addLineNumbers = addLineNumbers,
 
-		onError = function(err)
-			os.exit(1)
-		end,
-
 		onBeforeMeta = messageHandler and function()
-			messageHandler("beforemeta", path)
+			sendMessage("beforemeta", path)
 		end,
 
 		onAfterMeta = messageHandler and function(lua)
-			local luaModified = messageHandler("aftermeta", path, lua)
+			local luaModified = sendMessage("aftermeta", path, lua)
 
 			if type(luaModified) == "string" then
 				lua = luaModified
+
 			elseif luaModified ~= nil then
-				errorline("Message handler did not return a string for 'aftermeta'. (Got "..type(luaModified)..")")
+				local err = F(
+					"%s: Message handler did not return a string for 'aftermeta'. (Got %s)",
+					messageHandlerPath, type(luaModified)
+				)
+				print(F("Error @ %s", err))
+				sendMessage("fileerror", path, err)
+				os.exit(1)
 			end
 
 			return lua
 		end,
-	}
 
-	if messageHandler then  messageHandler("filedone", path, pathOut)  end
+		onDone = messageHandler and function(info)
+			sendMessage("filedone", path, pathOut, info)
+		end,
+
+		onError = function(err)
+			sendMessage("fileerror", path, err)
+			os.exit(1)
+		end,
+	}
 
 	byteCount     = byteCount+info.processedByteCount
 	lineCount     = lineCount+info.lineCount
@@ -326,7 +374,7 @@ for _, path in ipairs(paths) do
 	if processingInfoPath ~= "" then
 
 		-- :SavedInfo
-		info.path = path -- See 'ProcessInfo' in preprocess.lua to what more 'info' contains.
+		info.path = path -- See 'ProcessInfo' in preprocess.lua for what more 'info' contains.
 		table.insert(processingInfo.files, info)
 
 	end
