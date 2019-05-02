@@ -172,6 +172,8 @@ local IS_LUA_51_OR_LATER = (major == 5 and minor >= 1) or (major ~= nil and majo
 local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
 local IS_LUA_53_OR_LATER = (major == 5 and minor >= 3) or (major ~= nil and major > 5)
 
+local NOOP = function()end
+
 local _error                   = error -- We redefine error() later.
 
 local metaEnv                  = nil
@@ -205,6 +207,7 @@ local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
 local parseStringlike
 local printf, printTokens, printTraceback
+local pushErrorHandler, pushErrorHandlerIfOverridingDefault, popErrorHandler
 local serialize, toLua
 local tokenize
 
@@ -265,6 +268,7 @@ function errorOnLine(path, ln, agent, s, ...)
 		printf("Error @ %s:%d: %s",      path, ln,        s)
 	end
 	currentErrorHandler(s, 2)
+	return s
 end
 function errorInFile(contents, path, ptr, agent, s, ...)
 	s = s:format(...)
@@ -911,6 +915,24 @@ function getLineNumber(s, ptr)
 	return 1+nlCount
 end
 
+do
+	local errorHandlers = {_error}
+	function pushErrorHandler(errHand)
+		table.insert(errorHandlers, errHand)
+		currentErrorHandler = errHand
+	end
+	function pushErrorHandlerIfOverridingDefault(errHand)
+		pushErrorHandler(currentErrorHandler == _error and errHand or currentErrorHandler)
+	end
+	function popErrorHandler()
+		table.remove(errorHandlers)
+		if not errorHandlers[1] then
+			_error("Could not pop error handler.", 2)
+		end
+		currentErrorHandler = errorHandlers[#errorHandlers]
+	end
+end
+
 --==============================================================
 --= Preprocessor Functions =====================================
 --==============================================================
@@ -1030,9 +1052,15 @@ end
 -- tokenize()
 --   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
 --   tokens, error = tokenize( luaString [, allowPreprocessorTokens=false ] )
---   token = { type=tokenType, representation=representation, value=value, line=lineNumber, lineEnd=lineNumber, position=bytePosition, ... }
+--   token = {
+--     type=tokenType, representation=representation, value=value,
+--     line=lineNumber, lineEnd=lineNumber, position=bytePosition,
+--     ...
+--   }
 function metaFuncs.tokenize(lua, allowMetaTokens)
-	local tokens, err = tokenize(lua, "<string>", false, allowMetaTokens)
+	pushErrorHandler(NOOP)
+	local tokens, err = tokenize(lua, "<string>", allowMetaTokens, allowMetaTokens)
+	popErrorHandler()
 	return tokens, err
 end
 
@@ -1736,7 +1764,7 @@ local function processFileOrString(params, isFile)
 	local errorToReturn = nil
 
 	isDebug = params.debug
-	currentErrorHandler = function(err, levelFromOurError)
+	pushErrorHandler(function(err, levelFromOurError)
 		errorToReturn = err
 
 		if not levelFromOurError then
@@ -1744,7 +1772,7 @@ local function processFileOrString(params, isFile)
 		end
 
 		if params.onError then  params.onError(errorToReturn)  end
-	end
+	end)
 
 	xpcall(
 		function()
@@ -1754,7 +1782,7 @@ local function processFileOrString(params, isFile)
 	)
 
 	isDebug = false
-	currentErrorHandler = _error
+	popErrorHandler()
 
 	-- Cleanup in case an error happened.
 	isRunningMeta            = false
