@@ -22,6 +22,7 @@
 	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
 	- toLua, serialize
 	Only during processing:
+	- getCurrentPathIn, getCurrentPathOut
 	- outputValue, outputLua
 	Search this file for 'EnvironmentTable' for more info.
 
@@ -182,6 +183,8 @@ local isDebug                  = false
 local currentErrorHandler      = _error
 
 local isRunningMeta            = false
+local currentPathIn            = ""
+local currentPathOut           = ""
 local metaPathForErrorMessages = ""
 local outputFromMeta           = nil
 
@@ -1049,6 +1052,20 @@ function metaFuncs.outputLua(...)
 	end
 end
 
+-- getCurrentPathIn()
+--   Get what file is currently being processed, if any.
+--   path = getCurrentPathIn( )
+function metaFuncs.getCurrentPathIn()
+	return currentPathIn
+end
+
+-- getCurrentPathOut()
+--   Get what file the currently processed file will be written to, if any.
+--   path = getCurrentPathOut( )
+function metaFuncs.getCurrentPathOut()
+	return currentPathOut
+end
+
 -- tokenize()
 --   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
 --   tokens, error = tokenize( luaString [, allowPreprocessorTokens=false ] )
@@ -1323,6 +1340,9 @@ local function _processFileOrString(params, isFile)
 		if not luaUnprocessed then
 			errorline("Could not read file: "..err)
 		end
+
+		currentPathIn  = params.pathIn
+		currentPathOut = params.pathOut
 
 	else
 		pathIn         = "<code>"
@@ -1749,6 +1769,9 @@ local function _processFileOrString(params, isFile)
 
 	if params.onDone then  params.onDone(info)  end
 
+	currentPathIn  = ""
+	currentPathOut = ""
+
 	if isFile then
 		return info
 	else
@@ -1786,6 +1809,8 @@ local function processFileOrString(params, isFile)
 
 	-- Cleanup in case an error happened.
 	isRunningMeta            = false
+	currentPathIn            = ""
+	currentPathOut           = ""
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
 
