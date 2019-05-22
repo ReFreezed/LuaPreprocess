@@ -18,6 +18,11 @@ exec lua "$0" "$@"
 		lua preprocess-cl.lua [options] [--] filepath1 [filepath2 ...]
 
 	Options:
+		--data="Any data."
+			A string with any data. If the option is present then the value
+			will be available through the global 'dataFromCommandLine' in the
+			processed files (and the message handler, if you have one).
+
 		--handler=pathToMessageHandler
 			Path to a Lua file that's expected to return a function or a
 			table of functions. If it returns a function then it will be
@@ -121,6 +126,7 @@ local outputExtension    = "lua"
 local processingInfoPath = ""
 local silent             = false
 local outputMeta         = false
+local customData         = nil
 
 --==============================================================
 --= Local Functions ============================================
@@ -216,6 +222,9 @@ for _, arg in ipairs(args) do
 		elseif arg:find"^%-%-outputextension=" then
 			outputExtension = arg:match"^%-%-outputextension=(.*)$"
 
+		elseif arg:find"^%-%-data=" then
+			customData = arg:match"^%-%-data=(.*)$"
+
 		elseif arg == "--meta" then
 			outputMeta = true
 
@@ -236,6 +245,11 @@ local header = "= LuaPreprocess v"..pp.VERSION..os.date(", %Y-%m-%d %H:%M:%S =",
 printfNoise(("="):rep(#header))
 printfNoise("%s", header)
 printfNoise(("="):rep(#header))
+
+
+
+-- Prepare metaEnvironment.
+pp.metaEnvironment.dataFromCommandLine = customData -- May be nil.
 
 
 

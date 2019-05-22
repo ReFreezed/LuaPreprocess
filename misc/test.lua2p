@@ -58,6 +58,7 @@ print(s:match(ident))    -- "hello5"
 print(s:match(num))      -- "2"
 print(s:match(funcCall)) -- "hello5( foo )"
 
+print(!("dataFromCommandLine: "..tostring(dataFromCommandLine)))
 print("The end.")
 
 !(
