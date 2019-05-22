@@ -28,8 +28,9 @@ exec lua "$0" "$@"
 			table of functions. If it returns a function then it will be
 			called with various messages as it's first argument. If it's
 			a table, the keys should be the message names and the values
-			should be functions to handle the respective message.
-			(See 'Handler messages')
+			should be functions to handle the respective message. (See
+			'Handler messages'.) This file shares the same environment
+			as the processed files.
 
 		--linenumbers
 			Add comments with line numbers to the output.
