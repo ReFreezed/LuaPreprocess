@@ -1526,10 +1526,9 @@ local function _processFileOrString(params, isFile)
 
 		while true do
 			local tok = tokens[tokenIndex]
-			if not tok then  break  end
+			if not tok then  return  end
 
 			local tokType = tok.type
-
 			if
 				bracketBalance == 0 and (
 					(tokType == "whitespace" and tok.value:find("\n", 1, true)) or
@@ -1546,7 +1545,18 @@ local function _processFileOrString(params, isFile)
 					outputFinalDualValueStatement(metaLineIndexStart, tokenIndex-1)
 				end
 
-				break
+				-- Fix whitespace after the line.
+				local tokNext = tokens[tokenIndex]
+				if not isDual and tokType == "whitespace" and not (tokNext and isToken(tokNext, "pp_entry")) then
+					local tokExtra          = copyTable(tok)
+					tokExtra.value          = tok.value:gsub("^[^\n]+", "")
+					tokExtra.representation = tokExtra.value
+					tokExtra.position       = tokExtra.position+#tok.value-#tokExtra.value
+
+					table.insert(tokensToProcess, tokExtra)
+				end
+
+				return
 
 			elseif tokType == "pp_entry" then
 				errorInFile(
