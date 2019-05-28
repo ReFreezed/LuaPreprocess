@@ -40,7 +40,7 @@
 	The exclamation mark (!) is used to indicate what code is part
 	of the metaprogram. There are 4 ways to write metaprogram code:
 
-	!...     The line will simply run during preprocessing. The line can span over multiple actual lines if it contains brackets.
+	!...     The line will simply run during preprocessing. The line can span multiple actual lines if it contains brackets.
 	!!...    The line will appear in both the metaprogram and the final program. The line must be an assignment.
 	!(...)   The result of the parenthesis will be outputted as a literal if it's an expression, otherwise it'll just run.
 	!!(...)  The expression in the parenthesis will be outputted as Lua code. The expression must result in a string.
@@ -104,7 +104,7 @@
 	print(whole) -- HelloHello, world!
 
 	-- Beware in preprocessor blocks that only call a single function!
-	!(func())  -- This will bee seen as an inline block and output whatever value func() returns (nil if nothing) as a literal.
+	!(func())  -- This will bee seen as an inline block and output whatever value func() returns as a literal.
 	!(func();) -- If that's not wanted then a trailing ";" will prevent that. This line won't output anything by itself.
 	-- When the full metaprogram is generated, "!(func())" translates into "outputValue(func())"
 	-- while "!(func();)" simply translates into "func();" (because "outputValue(func();)" would be invalid Lua code).
@@ -867,7 +867,7 @@ if IS_LUA_52_OR_LATER then
 else
 	function loadLuaString(lua, chunkName, env)
 		local mainChunk, err = loadstring(lua, chunkName)
-		if not mainChunk then  return mainChunk, err  end
+		if not mainChunk then  return nil, err  end
 
 		if env then  setfenv(mainChunk, env)  end
 
@@ -882,7 +882,7 @@ if IS_LUA_52_OR_LATER then
 else
 	function loadLuaFile(path, env)
 		local mainChunk, err = loadfile(path)
-		if not mainChunk then  return mainChunk, err  end
+		if not mainChunk then  return nil, err  end
 
 		if env then  setfenv(mainChunk, env)  end
 
@@ -990,21 +990,28 @@ metaFuncs.isToken = isToken
 --   copy = copyTable( table [, deep=false ] )
 metaFuncs.copyTable = copyTable
 
--- values = pack( value1, ... )
--- values.n is the amount of values (which can be zero). Alias for table.pack() in Lua 5.2+.
+-- unpack()
+--   value1, ... = unpack( table [, fromIndex=1, toIndex=#table ] )
+--   Is _G.unpack() in Lua 5.1 and alias for table.unpack() in Lua 5.2+.
+metaFuncs.unpack = unpack
+
+-- pack()
+--   values = pack( value1, ... )
+--   Put values in a new table. values.n is the amount of values (which can be zero)
+--   including nil values. Alias for table.pack() in Lua 5.2+.
 metaFuncs.pack = pack
 
 -- run()
 --   Execute a Lua file. Similar to dofile().
---   returnValue1, ... = run( path )
-function metaFuncs.run(path)
+--   returnValue1, ... = run( path [, arg1, ... ] )
+function metaFuncs.run(path, ...)
 	assertarg(1, path, "string")
 
 	local mainChunk, err = loadLuaFile(path, metaEnv)
 	if not mainChunk then  errorline(err)  end
 
 	-- We want multiple return values while avoiding a tail call to preserve stack info.
-	local returnValues = pack(mainChunk())
+	local returnValues = pack(mainChunk(...))
 	return unpack(returnValues, 1, returnValues.n)
 end
 
@@ -1102,7 +1109,7 @@ function metaFuncs.removeUselessTokens(tokens)
 end
 
 -- eachToken()
---   Loop though tokens.
+--   Loop through tokens.
 --   for index, token in eachToken( tokens [, ignoreUselessTokens=false ] ) do
 local function nextUsefulToken(tokens, i)
 	while true do
@@ -1478,7 +1485,7 @@ local function _processFileOrString(params, isFile)
 			end
 			table.insert(parts, "\n)")
 
-			if not loadstring(table.concat(parts)) then
+			if not loadLuaString(table.concat(parts)) then
 				errorInFile(
 					luaUnprocessed, pathIn, tokens[metaLineIndexStart].position, "Parser",
 					"Dual code line must be a single assignment statement."
@@ -1770,6 +1777,7 @@ local function _processFileOrString(params, isFile)
 
 	-- :ProcessInfo
 	local info = {
+		path                = isFile and params.pathIn or "",
 		processedByteCount  = processedByteCount,
 		lineCount           = lineCount,
 		linesOfCode         = lineCountCode,
@@ -1858,8 +1866,8 @@ local lib = {
 	--
 	-- params: Table with these fields:
 	--   pathIn          = pathToInputFile       -- [Required]
-	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
 	--   pathOut         = pathToOutputFile      -- [Required]
+	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
 	--
 	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.

@@ -17,15 +17,16 @@ LuaPreprocess is written in pure Lua.
 [MIT license](LICENSE.txt).
 A separate [command line program](preprocess-cl.lua) is available too.
 
-- [Example program](#example-program)
+- [Example Program](#example-program)
 - [Usage](#usage)
 	- [Library](#preprocess-files-using-the-library)
-	- [Command line](#preprocess-files-from-the-command-line)
+	- [Command Line](#preprocess-files-from-the-command-line)
+- [Documentation](https://github.com/ReFreezed/LuaPreprocess/wiki)
 
 
 
 ## Example Program
-The exclamation mark (*!*) is used to indicate what code is part of the metaprogram. ([Screenshot](misc/example.png))
+The exclamation mark (!) is used to indicate what code is part of the metaprogram. ([See screenshot with highlighting](misc/example.png))
 
 ```lua
 -- Normal Lua.
@@ -101,25 +102,25 @@ myRandomGlobal4 = "foo"
 ```
 
 See the [examples folder](examples) for more.
-(See also [an example for LÖVE](https://gist.github.com/ReFreezed/be97dce6b67496b0f0c5275bf2a96d51).)
+(See also [an example for the LÖVE framework](https://gist.github.com/ReFreezed/be97dce6b67496b0f0c5275bf2a96d51).)
 
 
 
 ## Usage
-First you of course need [Lua](https://www.lua.org/versions.html) installed on your system. (Binaries can be
+First you need [Lua](https://www.lua.org/versions.html) installed on your system. (Binaries can be
 downloaded from [LuaBinaries via SourceForge](https://sourceforge.net/projects/luabinaries/files/5.1.5/Tools%20Executables/)
 if you don't want to, or can't, compile Lua from source. For Windows I can recommend installing
 [LuaForWindows](https://github.com/rjpcomputing/luaforwindows) which is a "batteries included" Lua package.)
 
 
-### Preprocess files using the library
+### Preprocess Files Using the Library
 ```lua
 local pp = require("preprocess")
 
 local info, err = pp.processFile{
-	pathIn   = "app.lua2p",    -- This is the file we want to process.
-	pathMeta = "app.meta.lua", -- Temporary output file for the metaprogram.
-	pathOut  = "app.lua",      -- The output path.
+	pathIn   = "src/app.lua2p",     -- This is the file we want to process.
+	pathOut  = "output/app.lua",    -- The output path.
+	pathMeta = "temp/app.meta.lua", -- Temporary output file for the metaprogram.
 }
 
 if not info then
@@ -129,10 +130,11 @@ end
 print("Lines of code processed: "..info.lineCount)
 ```
 
-See the top of [preprocess.lua](preprocess.lua) for documentation.
+See the [wiki](https://github.com/ReFreezed/LuaPreprocess/wiki)
+or the top of [preprocess.lua](preprocess.lua) for documentation.
 
 
-### Preprocess files from the command line
+### Preprocess Files from the Command Line
 
 #### Windows
 ```batch
@@ -146,6 +148,8 @@ lua preprocess-cl.lua [options] filepath1 [filepath2 ...]
 
 If a filepath is, for example, `C:/MyApp/app.lua2p` then LuaPreprocess will write the processed file to `C:/MyApp/app.lua`.
 
-See the top of [preprocess-cl.lua](preprocess-cl.lua) and [preprocess.lua](preprocess.lua) for the options and more documentation.
+See the [wiki](https://github.com/ReFreezed/LuaPreprocess/wiki/Command-Line),
+or the top of [preprocess-cl.lua](preprocess-cl.lua)
+and [preprocess.lua](preprocess.lua), for the options and more documentation.
 
 

@@ -389,8 +389,7 @@ for _, path in ipairs(paths) do
 	if processingInfoPath ~= "" then
 
 		-- :SavedInfo
-		info.path = path -- See 'ProcessInfo' in preprocess.lua for what more 'info' contains.
-		table.insert(processingInfo.files, info)
+		table.insert(processingInfo.files, info) -- See 'ProcessInfo' in preprocess.lua for what more 'info' contains.
 
 	end
 
