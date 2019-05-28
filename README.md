@@ -22,6 +22,7 @@ A separate [command line program](preprocess-cl.lua) is available too.
 	- [Library](#preprocess-files-using-the-library)
 	- [Command Line](#preprocess-files-from-the-command-line)
 - [Documentation](https://github.com/ReFreezed/LuaPreprocess/wiki)
+- [Help](#help)
 
 
 
@@ -151,5 +152,19 @@ If a filepath is, for example, `C:/MyApp/app.lua2p` then LuaPreprocess will writ
 See the [wiki](https://github.com/ReFreezed/LuaPreprocess/wiki/Command-Line),
 or the top of [preprocess-cl.lua](preprocess-cl.lua)
 and [preprocess.lua](preprocess.lua), for the options and more documentation.
+
+
+
+## Documentation
+- [Wiki](https://github.com/ReFreezed/LuaPreprocess/wiki/Command-Line)
+- Library: See the top of [preprocess.lua](preprocess.lua)
+- Command line: See the top of [preprocess-cl.lua](preprocess-cl.lua)
+
+
+
+## Help
+Got a question?
+Look if someone has asked the question in the [issue tracker](https://github.com/ReFreezed/LuaPreprocess/issues),
+or [create a new issue](https://github.com/ReFreezed/LuaPreprocess/issues/new).
 
 
