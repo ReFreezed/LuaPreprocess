@@ -219,7 +219,7 @@ function tryToFormatError(err0)
 	local err, path, ln = nil
 
 	if type(err0) == "string" then
-		path, ln, err = err0:match'^%[string "(.-)"%]:(%d+): (.*)'
+		path, ln, err = err0:match'^(.-):(%d+): (.*)'
 		if not err then
 			path, ln, err = err0:match'^([%w_/.]+):(%d+): (.*)'
 		end
@@ -243,15 +243,30 @@ function printTokens(tokens, filter)
 	end
 end
 function printTraceback(message, level)
-	level = 1+(level or 1)
-	local s = debug.traceback(message, level)
+	print(message)
+	print("stack traceback:")
 
-	s = s:gsub("[^\n]+", function(line)
-		line = line:gsub('^\t%[string "(.-)"%]:', "\t%1:")
-		return line
-	end)
+	for level = 1+(level or 1), math.huge do
+		local info = debug.getinfo(level, "nSl")
+		if not info then  break  end
 
-	print(s)
+		-- print(level, "source   ", info.source)
+		-- print(level, "short_src", info.short_src)
+		-- print(level, "name     ", info.name)
+		-- print(level, "what     ", info.what)
+
+		local where = info.source:match"^@(.+)" or info.short_src
+		local lnStr = info.currentline > 0 and ":"..info.currentline or ""
+
+		local name
+			=  info.name --and (info.namewhat ~= "" and "in "..info.namewhat.." "..info.name or info.name)
+			or info.linedefined > 0 and where..":"..info.linedefined
+			or info.what == "main" and "main chunk"
+			or info.what == "tail" and "tail call"
+			or "?"
+
+		print("\t"..where..lnStr.."  ("..name..")")
+	end
 end
 
 function error(err, level)
@@ -443,9 +458,9 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 
 			if tok.long then
 				-- Check for nesting of [[...]], which is depricated in Lua.
-				local mainChunk, err = loadLuaString("--"..tok.representation)
+				local mainChunk, err = loadLuaString("--"..tok.representation, "")
 				if not mainChunk then
-					local lnInString, _err = err:match'^%[string ".-"%]:(%d+): (.*)'
+					local lnInString, _err = err:match'^%[string ""%]:(%d+): (.*)'
 					if not _err then
 						return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long comment.")
 					end
@@ -523,9 +538,9 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 			end
 
 			-- Check for nesting of [[...]], which is depricated in Lua.
-			local valueChunk, err = loadLuaString("return"..tok.representation)
+			local valueChunk, err = loadLuaString("return"..tok.representation, "")
 			if not valueChunk then
-				local lnInString, _err = err:match'^%[string ".-"%]:(%d+): (.*)'
+				local lnInString, _err = err:match'^%[string ""%]:(%d+): (.*)'
 				if not _err then
 					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
 				end
@@ -1720,10 +1735,10 @@ local function _processFileOrString(params, isFile)
 		file:close()
 	end
 
-	local mainChunk, err = loadLuaString(luaMeta, metaPathForErrorMessages, metaEnv)
+	local mainChunk, err = loadLuaString(luaMeta, (params.pathMeta and "@" or "")..metaPathForErrorMessages, metaEnv)
 	if not mainChunk then
-		local ln, _err = err:match'^%[string ".-"%]:(%d+): (.*)'
-		errorOnLine(metaPathForErrorMessages, tonumber(ln), nil, "%s", _err)
+		local ln, _err = err:match'^.-:(%d+): (.*)'
+		errorOnLine(metaPathForErrorMessages, (tonumber(ln) or 0), nil, "%s", (_err or err))
 	end
 
 	if params.onBeforeMeta then  params.onBeforeMeta()  end
@@ -1769,10 +1784,10 @@ local function _processFileOrString(params, isFile)
 	end
 
 	-- Test if the output is valid Lua.
-	local mainChunk, err = loadLuaString(lua, pathOut)
+	local mainChunk, err = loadLuaString(lua, (isFile and params.pathMeta and "@" or "")..pathOut)
 	if not mainChunk then
-		local ln, err = err:match'^%[string ".-"%]:(%d+): (.*)'
-		errorOnLine(pathOut, tonumber(ln), nil, "%s", err)
+		local ln, _err = err:match'^.-:(%d+): (.*)'
+		errorOnLine(pathOut, (tonumber(ln) or 0), nil, "%s", (_err or err))
 	end
 
 	-- :ProcessInfo
