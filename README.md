@@ -145,6 +145,8 @@ Preprocess.cmd [options] filepath1 [filepath2 ...]
 #### Any System
 ```batch
 lua preprocess-cl.lua [options] filepath1 [filepath2 ...]
+OR
+lua preprocess-cl.lua --outputpaths [options] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
 ```
 
 If a filepath is, for example, `C:/MyApp/app.lua2p` then LuaPreprocess will write the processed file to `C:/MyApp/app.lua`.

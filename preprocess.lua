@@ -1783,7 +1783,11 @@ local function _processFileOrString(params, isFile)
 		file:close()
 	end
 
-	-- Test if the output is valid Lua.
+	-- Check if the output is valid Lua.
+	--
+	-- @Incomplete: Maybe add an option to disable this? It might be useful if
+	-- e.g. Lua 5.1 is used to generate Lua 5.3 code (for whatever reason).
+	--
 	local mainChunk, err = loadLuaString(lua, (isFile and params.pathMeta and "@" or "")..pathOut)
 	if not mainChunk then
 		local ln, _err = err:match'^.-:(%d+): (.*)'
@@ -1792,7 +1796,8 @@ local function _processFileOrString(params, isFile)
 
 	-- :ProcessInfo
 	local info = {
-		path                = isFile and params.pathIn or "",
+		path                = isFile and params.pathIn  or "",
+		outputPath          = isFile and params.pathOut or "",
 		processedByteCount  = processedByteCount,
 		lineCount           = lineCount,
 		linesOfCode         = lineCountCode,

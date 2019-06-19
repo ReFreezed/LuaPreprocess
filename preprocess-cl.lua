@@ -15,7 +15,9 @@ exec lua "$0" "$@"
 --==============================================================
 
 	Script usage:
-		lua preprocess-cl.lua [options] [--] filepath1 [filepath2 ...]
+		lua preprocess-cl.lua               [options] [--] filepath1 [filepath2 ...]
+		OR
+		lua preprocess-cl.lua --outputpaths [options] [--] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
 
 	Options:
 		--data="Any data."
@@ -45,6 +47,10 @@ exec lua "$0" "$@"
 			default is "lua". If any input files end in .lua then you must
 			specify another file extension.
 
+		--outputpaths
+			This flag makes every other specified path be the output path
+			for the previous path.
+
 		--saveinfo=pathToSaveProcessingInfoTo
 			Processing information includes what files had any preprocessor
 			code in them, and things like that. The format of the file is a
@@ -71,6 +77,7 @@ exec lua "$0" "$@"
 		Sent before any other message.
 		Arguments:
 			paths: Array of file paths to process. Paths can be added or removed freely.
+			outputPaths: If the --outputpaths option is present this is an array of output paths for the respective path in inputPaths, otherwise it's nil.
 
 	"beforemeta"
 		Sent before a file's metaprogram runs.
@@ -105,7 +112,7 @@ local args = arg
 
 local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
 if not major then
-	print("[LuaPreprocess] Warning: Could not detect Lua version.")
+	print("[LuaPreprocess] Warning: Could not detect Lua version.") -- Note: This line does not obey the --silent option.
 else
 	major = tonumber(major)
 	minor = tonumber(minor)
@@ -122,12 +129,14 @@ local pp = dofile((args[0]:gsub("[^/\\]+$", "preprocess.lua")))
 
 -- From args:
 local addLineNumbers     = false
+local customData         = nil
+local hasOutputExtension = false
+local hasOutputPaths     = false
 local isDebug            = false
 local outputExtension    = "lua"
+local outputMeta         = false
 local processingInfoPath = ""
 local silent             = false
-local outputMeta         = false
-local customData         = nil
 
 --==============================================================
 --= Local Functions ============================================
@@ -197,44 +206,56 @@ math.random() -- Must kickstart...
 
 local processOptions     = true
 local messageHandlerPath = ""
-local paths              = {}
+local pathsIn            = {}
+local pathsOut           = {}
 
 for _, arg in ipairs(args) do
-	if processOptions and arg:find"^%-" then
-		if arg == "--" then
-			processOptions = false
+	if not (processOptions and arg:find"^%-") then
+		local paths = (hasOutputPaths and #pathsOut < #pathsIn and pathsOut or pathsIn)
+		table.insert(paths, arg)
 
-		elseif arg:find"^%-%-handler=" then
-			messageHandlerPath = arg:match"^%-%-handler=(.*)$"
+	elseif arg == "--" then
+		processOptions = false
 
-		elseif arg == "--silent" then
-			silent = true
+	elseif arg:find"^%-%-data=" then
+		customData = arg:match"^%-%-data=(.*)$"
 
-		elseif arg == "--linenumbers" then
-			addLineNumbers = true
+	elseif arg == "--debug" then
+		isDebug    = true
+		outputMeta = true
 
-		elseif arg == "--debug" then
-			isDebug    = true
-			outputMeta = true
+	elseif arg:find"^%-%-handler=" then
+		messageHandlerPath = arg:match"^%-%-handler=(.*)$"
 
-		elseif arg:find"^%-%-saveinfo=" then
-			processingInfoPath = arg:match"^%-%-saveinfo=(.*)$"
+	elseif arg == "--linenumbers" then
+		addLineNumbers = true
 
-		elseif arg:find"^%-%-outputextension=" then
-			outputExtension = arg:match"^%-%-outputextension=(.*)$"
+	elseif arg == "--meta" then
+		outputMeta = true
 
-		elseif arg:find"^%-%-data=" then
-			customData = arg:match"^%-%-data=(.*)$"
-
-		elseif arg == "--meta" then
-			outputMeta = true
-
-		else
-			errorline("Unknown option '"..arg.."'.")
+	elseif arg:find"^%-%-outputextension=" then
+		if hasOutputPaths then
+			errorline("Cannot specify both --outputextension and --outputpaths")
 		end
+		hasOutputExtension = true
+		outputExtension    = arg:match"^%-%-outputextension=(.*)$"
+
+	elseif arg == "--outputpaths" then
+		if hasOutputExtension then
+			errorline("Cannot specify both --outputpaths and --outputextension")
+		elseif pathsIn[1] then
+			errorline(arg.." must appear before any paths.")
+		end
+		hasOutputPaths = true
+
+	elseif arg:find"^%-%-saveinfo=" then
+		processingInfoPath = arg:match"^%-%-saveinfo=(.*)$"
+
+	elseif arg == "--silent" then
+		silent = true
 
 	else
-		table.insert(paths, arg)
+		errorline("Unknown option '"..arg.."'.")
 	end
 end
 
@@ -246,6 +267,10 @@ local header = "= LuaPreprocess v"..pp.VERSION..os.date(", %Y-%m-%d %H:%M:%S =",
 printfNoise(("="):rep(#header))
 printfNoise("%s", header)
 printfNoise(("="):rep(#header))
+
+if hasOutputPaths and #pathsOut < #pathsIn then
+	errorline("Missing output path for "..pathsIn[#pathsIn])
+end
 
 
 
@@ -302,21 +327,37 @@ if messageHandlerPath ~= "" then
 	end
 end
 
-sendMessage("init", paths)
 
-if not paths[1] then
-	errorline("No path(s) specified.")
-end
 
-local pat = "%."..pp.escapePattern(outputExtension).."$"
-for _, path in ipairs(paths) do
-	if path:find(pat) then
-		errorline(
-			"Invalid path '"..path.."'. (Paths must not end with ."..outputExtension
-			.." as those will be used as output paths. You can change extension with --outputextension.)"
-		)
+-- Init stuff.
+sendMessage("init", pathsIn, (hasOutputPaths and pathsOut or nil))
+
+if not hasOutputPaths then
+	for i, pathIn in ipairs(pathsIn) do
+		pathsOut[i] = pathIn:gsub("%.%w+$", "").."."..outputExtension
 	end
 end
+
+if not pathsIn[1] then
+	errorline("No path(s) specified.")
+elseif #pathsIn ~= #pathsOut then
+	errorline(F("Number of input and output paths differ. (%d in, %d out)", #pathsIn, #pathsOut))
+end
+
+local pathsSetIn  = {}
+local pathsSetOut = {}
+for i = 1, #pathsIn do
+	if pathsSetIn [pathsIn [i]] then  errorline("Duplicate input path: " ..pathsIn [i])  end
+	if pathsSetOut[pathsOut[i]] then  errorline("Duplicate output path: "..pathsOut[i])  end
+	pathsSetIn [pathsIn [i]] = true
+	pathsSetOut[pathsOut[i]] = true
+	if pathsSetOut[pathsIn [i]] then  errorline("Path is both input and output: "..pathsIn [i])  end
+	if pathsSetIn [pathsOut[i]] then  errorline("Path is both input and output: "..pathsOut[i])  end
+end
+
+
+
+-- Process files.
 
 -- :SavedInfo
 local processingInfo = {
@@ -329,19 +370,19 @@ local lineCount     = 0
 local lineCountCode = 0
 local tokenCount    = 0
 
-for _, path in ipairs(paths) do
+for i, pathIn in ipairs(pathsIn) do
 	local startClockForPath = os.clock()
-	printfNoise("Processing '%s'...", path)
+	printfNoise("Processing '%s'...", pathIn)
 
-	local pathMeta = path:gsub("%.%w+$", "")..".meta.lua"
-	local pathOut  = path:gsub("%.%w+$", "").."."..outputExtension
+	local pathOut  = pathsOut[i]
+	local pathMeta = pathOut:gsub("%.%w+$", "")..".meta.lua"
 
 	if not outputMeta then
 		pathMeta = nil
 	end
 
 	local info = pp.processFile{
-		pathIn         = path,
+		pathIn         = pathIn,
 		pathMeta       = pathMeta,
 		pathOut        = pathOut,
 
@@ -349,11 +390,11 @@ for _, path in ipairs(paths) do
 		addLineNumbers = addLineNumbers,
 
 		onBeforeMeta = messageHandler and function()
-			sendMessage("beforemeta", path)
+			sendMessage("beforemeta", pathIn)
 		end,
 
 		onAfterMeta = messageHandler and function(lua)
-			local luaModified = sendMessage("aftermeta", path, lua)
+			local luaModified = sendMessage("aftermeta", pathIn, lua)
 
 			if type(luaModified) == "string" then
 				lua = luaModified
@@ -363,8 +404,8 @@ for _, path in ipairs(paths) do
 					"%s: Message handler did not return a string for 'aftermeta'. (Got %s)",
 					messageHandlerPath, type(luaModified)
 				)
-				print(F("Error @ %s", err))
-				sendMessage("fileerror", path, err)
+				print("Error @ "..err)
+				sendMessage("fileerror", pathIn, err)
 				os.exit(1)
 			end
 
@@ -372,11 +413,11 @@ for _, path in ipairs(paths) do
 		end,
 
 		onDone = messageHandler and function(info)
-			sendMessage("filedone", path, pathOut, info)
+			sendMessage("filedone", pathIn, pathOut, info)
 		end,
 
 		onError = function(err)
-			sendMessage("fileerror", path, err)
+			sendMessage("fileerror", pathIn, err)
 			os.exit(1)
 		end,
 	}
@@ -393,10 +434,13 @@ for _, path in ipairs(paths) do
 
 	end
 
-	printfNoise("Processing '%s' successful! (%.3fs)", path, os.clock()-startClockForPath)
+	printfNoise("Processing '%s' successful! (%.3fs)", pathIn, os.clock()-startClockForPath)
 	printfNoise(("-"):rep(#header))
 end
 
+
+
+-- Finalize stuff.
 if processingInfoPath ~= "" then
 	printfNoise("Saving processing info to '%s'.", processingInfoPath)
 
@@ -412,12 +456,14 @@ end
 printfNoise(
 	"All done! (%.3fs, %.0f file%s, %.0f LOC, %.0f line%s, %.0f token%s, %s)",
 	os.clock()-startClock,
-	#paths,     #paths     == 1 and "" or "s",
+	#pathsIn,   #pathsIn   == 1 and "" or "s",
 	lineCountCode,
 	lineCount,  lineCount  == 1 and "" or "s",
 	tokenCount, tokenCount == 1 and "" or "s",
 	formatBytes(byteCount)
 )
+
+
 
 --[[!===========================================================
 
