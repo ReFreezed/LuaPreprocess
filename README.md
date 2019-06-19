@@ -140,6 +140,8 @@ or the top of [preprocess.lua](preprocess.lua) for documentation.
 #### Windows
 ```batch
 Preprocess.cmd [options] filepath1 [filepath2 ...]
+OR
+Preprocess.cmd --outputpaths [options] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
 ```
 
 #### Any System
