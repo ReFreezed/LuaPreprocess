@@ -19,13 +19,18 @@ exec lua "$0" "$@"
 		OR
 		lua preprocess-cl.lua --outputpaths [options] [--] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
 
+	Examples:
+		lua preprocess-cl.lua --saveinfo=misc/info.lua --silent src/main.lua2p src/network.lua2p
+		lua preprocess-cl.lua --debug src/main.lua2p src/network.lua2p
+		lua preprocess-cl.lua --outputpaths --linenumbers src/main.lua2p output/main.lua src/network.lua2p output/network.lua
+
 	Options:
-		--data="Any data."
+		--data|-d="Any data."
 			A string with any data. If the option is present then the value
 			will be available through the global 'dataFromCommandLine' in the
 			processed files (and the message handler, if you have one).
 
-		--handler=pathToMessageHandler
+		--handler|-h=pathToMessageHandler
 			Path to a Lua file that's expected to return a function or a
 			table of functions. If it returns a function then it will be
 			called with various messages as it's first argument. If it's
@@ -47,11 +52,11 @@ exec lua "$0" "$@"
 			default is "lua". If any input files end in .lua then you must
 			specify another file extension.
 
-		--outputpaths
+		--outputpaths|-o
 			This flag makes every other specified path be the output path
 			for the previous path.
 
-		--saveinfo=pathToSaveProcessingInfoTo
+		--saveinfo|-i=pathToSaveProcessingInfoTo
 			Processing information includes what files had any preprocessor
 			code in them, and things like that. The format of the file is a
 			lua module that returns a table. Search this file for 'SavedInfo'
@@ -217,15 +222,15 @@ for _, arg in ipairs(args) do
 	elseif arg == "--" then
 		processOptions = false
 
-	elseif arg:find"^%-%-data=" then
-		customData = arg:match"^%-%-data=(.*)$"
+	elseif arg:find"^%-%-data=" or arg:find"^%-d=" then
+		customData = arg:match"^%-%-data=(.*)$" or arg:match"^%-d=(.*)$"
 
 	elseif arg == "--debug" then
 		isDebug    = true
 		outputMeta = true
 
-	elseif arg:find"^%-%-handler=" then
-		messageHandlerPath = arg:match"^%-%-handler=(.*)$"
+	elseif arg:find"^%-%-handler=" or arg:find"^%-h=" then
+		messageHandlerPath = arg:match"^%-%-handler=(.*)$" or arg:match"^%-h=(.*)$"
 
 	elseif arg == "--linenumbers" then
 		addLineNumbers = true
@@ -240,7 +245,7 @@ for _, arg in ipairs(args) do
 		hasOutputExtension = true
 		outputExtension    = arg:match"^%-%-outputextension=(.*)$"
 
-	elseif arg == "--outputpaths" then
+	elseif arg == "--outputpaths" or arg == "-o" then
 		if hasOutputExtension then
 			errorline("Cannot specify both --outputpaths and --outputextension")
 		elseif pathsIn[1] then
@@ -248,14 +253,14 @@ for _, arg in ipairs(args) do
 		end
 		hasOutputPaths = true
 
-	elseif arg:find"^%-%-saveinfo=" then
-		processingInfoPath = arg:match"^%-%-saveinfo=(.*)$"
+	elseif arg:find"^%-%-saveinfo=" or arg:find"^%-i=" then
+		processingInfoPath = arg:match"^%-%-saveinfo=(.*)$" or arg:match"^%-i=(.*)$"
 
 	elseif arg == "--silent" then
 		silent = true
 
 	else
-		errorline("Unknown option '"..arg.."'.")
+		errorline("Unknown option '"..arg:gsub("=.*", "").."'.")
 	end
 end
 
