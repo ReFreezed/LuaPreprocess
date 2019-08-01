@@ -160,7 +160,7 @@ and [preprocess.lua](preprocess.lua), for the options and more documentation.
 
 
 ## Documentation
-- [Wiki](https://github.com/ReFreezed/LuaPreprocess/wiki/Command-Line)
+- [Wiki](https://github.com/ReFreezed/LuaPreprocess/wiki)
 - Library: See the top of [preprocess.lua](preprocess.lua)
 - Command line: See the top of [preprocess-cl.lua](preprocess-cl.lua)
 

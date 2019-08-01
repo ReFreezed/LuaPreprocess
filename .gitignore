@@ -3,8 +3,8 @@
 
 /*.sublime-*
 
-/misc/test.*
-!/misc/test.lua2p
+/misc/quicktest.lua
+/misc/quicktest.meta.lua
 
 /examples/*.lua
 !/examples/*.output.lua

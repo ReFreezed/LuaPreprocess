@@ -30,7 +30,7 @@ end
 )
 
 local c   = !(100+sum(10, 5))
-local str = !(run("misc/testInclude.lua", "what"))
+local str = !(run("misc/quickTestInclude.lua", "what"))
 
 _G.!!("global"..math.random(5)) = 99
 
@@ -63,7 +63,7 @@ print("The end.")
 
 !(
 --[==[ Test token stuff.
-for i, token in ipairs(assert(tokenize(getFileContents"testInclude.lua"))) do
+for i, token in ipairs(assert(tokenize(getFileContents"quickTestInclude.lua"))) do
 	print(i, token.type, "", (token.representation:gsub("\n", "<NEWLINE>")))
 end
 
