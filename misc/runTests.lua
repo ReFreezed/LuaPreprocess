@@ -2,6 +2,9 @@
 --= Tests for LuaPreprocess.
 --==============================================================
 
+io.stdout:setvbuf("no")
+io.stderr:setvbuf("no")
+
 local results = {}
 
 local function doTest(description, f, ...)
@@ -12,7 +15,6 @@ local function doTest(description, f, ...)
 
 	table.insert(results, {description=description, ok=ok})
 end
-
 local function addLabel(label)
 	table.insert(results, {label=label})
 end
@@ -21,17 +23,40 @@ local function trim(s)
 	return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+local function readFile(path)
+	local file, err = io.open(path, "rb")
+	if not file then  return nil, err  end
+
+	local data = file:read("*a")
+	file:close()
+
+	return data
+end
+local function writeFile(path, data)
+	local file, err = io.open(path, "wb")
+	if not file then  return false, err  end
+
+	file:write(data)
+	file:close()
+
+	return true
+end
+
 local function assertCodeOutput(codeOut, codeExpected, message)
 	assert(trim(codeOut) == codeExpected, (message or "Unexpected output: "..codeOut))
+end
+local function assertCmd(cmd)
+	local code = os.execute(cmd)
+	if code ~= 0 then  error("Command failed: "..cmd, 2)  end
 end
 
 --==============================================================
 
 
 
-addLabel("Preprocessor code.")
+addLabel("Preprocessor code")
 
-doTest("Inline block with simple expression.", function()
+doTest("Inline block with simple expression", function()
 	local pp = assert(loadfile"preprocess.lua")()
 	local luaIn = [[
 		local x = !(1+2*3)
@@ -41,7 +66,7 @@ doTest("Inline block with simple expression.", function()
 	assertCodeOutput(luaOut, [[local x = 7]])
 end)
 
-doTest("Static branch.", function()
+doTest("Static branch", function()
 	local pp = assert(loadfile"preprocess.lua")()
 	local luaIn = [[
 		!if FLAG then
@@ -60,7 +85,7 @@ doTest("Static branch.", function()
 	assertCodeOutput(luaOut, [[print("No")]], "Unexpected output with FLAG=false.")
 end)
 
-doTest("Output value from metaprogram.", function()
+doTest("Output value from metaprogram", function()
 	local pp = assert(loadfile"preprocess.lua")()
 	local luaIn = [[
 		!local t = {
@@ -75,7 +100,7 @@ doTest("Output value from metaprogram.", function()
 	assertCodeOutput(luaOut, [[local theTable = {a=2,z=99}]])
 end)
 
-doTest("Generate code.", function()
+doTest("Generate code", function()
 	local pp = assert(loadfile"preprocess.lua")()
 	local luaIn = [[
 		!(
@@ -91,7 +116,7 @@ doTest("Generate code.", function()
 	assertCodeOutput(luaOut, [[local s = "\n"]]) -- Debug mode changes how newlines appear in string values.
 end)
 
-doTest("Parsing extended preprocessor line.", function()
+doTest("Parsing extended preprocessor line", function()
 	local pp = assert(loadfile"preprocess.lua")()
 	local luaIn = [[
 		!local str = "foo\
@@ -111,7 +136,7 @@ doTest("Parsing extended preprocessor line.", function()
 	assertCodeOutput(luaOut, [[local z = 137]])
 end)
 
-doTest("Dual code.", function()
+doTest("Dual code", function()
 	local pp = assert(loadfile"preprocess.lua")()
 	local luaIn = [[
 		!local  one = 1
@@ -142,7 +167,7 @@ doTest("Expression or not?", function()
 	assertCodeOutput(luaOut, [[]])
 end)
 
-doTest("Output values of different types.", function()
+doTest("Output values of different types", function()
 	local pp = assert(loadfile"preprocess.lua")()
 
 	-- Valid: Numbers, strings, tables, booleans, nil.
@@ -173,9 +198,9 @@ end)
 
 
 
-addLabel("Library API.")
+addLabel("Library API")
 
-doTest("Get useful tokens.", function()
+doTest("Get useful tokens", function()
 	local pp     = assert(loadfile"preprocess.lua")()
 	local tokens = pp.tokenize[[local x = 5 -- Foo!]]
 
@@ -192,7 +217,7 @@ doTest("Get useful tokens.", function()
 	assert(tokens[4].value == 5,             "Unexpected token value 4.")
 end)
 
-doTest("Serialize.", function()
+doTest("Serialize", function()
 	local pp = assert(loadfile"preprocess.lua")()
 
 	local t = {
@@ -202,6 +227,51 @@ doTest("Serialize.", function()
 
 	local luaOut = assert(pp.toLua(t))
 	assertCodeOutput(luaOut, [[{a=2,z=99}]]) -- Note: Table keys should be sorted.
+end)
+
+
+
+addLabel("Command line")
+
+doTest("Simple processing of single file", function()
+	assert(writeFile("local/generatedTest.lua2p", [[
+		!outputLua("math.floor(1.5)")
+	]]))
+	assertCmd([[lua preprocess-cl.lua local/generatedTest.lua2p]])
+
+	local luaOut = assert(readFile("local/generatedTest.lua"))
+	assertCodeOutput(luaOut, [[math.floor(1.5)]])
+end)
+
+doTest("Send data", function()
+	assert(writeFile("local/generatedTest.lua2p", [[
+		print(!(dataFromCommandLine))
+	]]))
+	assertCmd([[lua preprocess-cl.lua --outputpaths --data="Hello, world!" local/generatedTest.lua2p local/generatedTest.lua]])
+
+	local luaOut = assert(readFile("local/generatedTest.lua"))
+	assertCodeOutput(luaOut, [[print("Hello, world!")]])
+end)
+
+doTest("Handler + multiple files", function()
+	assert(writeFile("local/generatedHandler.lua", [[
+		_G.one = 1
+		return {
+			aftermeta = function(path, luaString)
+				print(path, luaString)
+				return 'print("foo");'..luaString -- Prepend some code.
+			end,
+		}
+	]]))
+	assert(writeFile("local/generatedTest1.lua2p", "!!local x = one+2*3\n"))
+	assert(writeFile("local/generatedTest2.lua2p", "!!local y = one+2^10\n"))
+
+	assertCmd([[lua preprocess-cl.lua --handler=local/generatedHandler.lua local/generatedTest1.lua2p local/generatedTest2.lua2p]])
+
+	local luaOut = assert(readFile("local/generatedTest1.lua"))
+	assertCodeOutput(luaOut, [[print("foo");local x = 7]])
+	local luaOut = assert(readFile("local/generatedTest2.lua"))
+	assertCodeOutput(luaOut, [[print("foo");local y = 1025]])
 end)
 
 
@@ -237,3 +307,5 @@ if countFails == 0 then
 else
 	print(countFails.."/"..countResults.." tests FAILED!!!")
 end
+
+os.exit(countFails == 0 and 0 or 1)

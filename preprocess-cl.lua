@@ -7,6 +7,8 @@ exec lua "$0" "$@"
 --=  LuaPreprocess command line program
 --=  by Marcus 'ReFreezed' Thunström
 --=
+--=  Requires preprocess.lua!
+--=
 --=  License: MIT (see the bottom of this file)
 --=  Website: https://github.com/ReFreezed/LuaPreprocess
 --=
@@ -154,11 +156,11 @@ local printf, printfNoise
 F = string.format
 function formatBytes(n)
 	if     n >= 1024*1024*1024 then
-		return F("%.2f GB", n/(1024*1024*1024))
+		return F("%.2f GiB", n/(1024*1024*1024))
 	elseif n >= 1024*1024 then
-		return F("%.2f MB", n/(1024*1024))
+		return F("%.2f MiB", n/(1024*1024))
 	elseif n >= 1024 then
-		return F("%.2f kB", n/(1024))
+		return F("%.2f KiB", n/(1024))
 	elseif n == 1 then
 		return F("1 byte", n)
 	else
