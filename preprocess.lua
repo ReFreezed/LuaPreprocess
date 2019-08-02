@@ -1489,7 +1489,7 @@ local function _processFileOrString(params, isFile)
 
 		-- Check if the rest of the line is an expression.
 		if true then
-			local lastUsableToken, lastUsableIndex = getNextUsableToken(tokens, metaLineIndexEnd+1, 1, -1)
+			local lastUsableToken, lastUsableIndex = getNextUsableToken(tokens, metaLineIndexEnd, 1, -1)
 			local parts = {}
 
 			table.insert(parts, "return (")
@@ -1509,6 +1509,11 @@ local function _processFileOrString(params, isFile)
 		end
 
 		-- Output.
+		local s = metaParts[#metaParts]
+		if s and s:sub(#s) ~= "\n" then
+			table.insert(metaParts, "\n")
+		end
+
 		if isDebug then
 			table.insert(metaParts, '__LUA("')
 
@@ -1548,7 +1553,23 @@ local function _processFileOrString(params, isFile)
 
 		while true do
 			local tok = tokens[tokenIndex]
-			if not tok then  return  end
+
+			if not tok then
+				if bracketBalance ~= 0 then
+					errorInFile(
+						luaUnprocessed, pathIn, #luaUnprocessed, "Parser",
+						"Unexpected end-of-data. Preprocessor line"
+							..(tokens[tokenIndex-1].line == metaStartLine and "" or " (starting at line %d)")
+							.." has unbalanced brackets.",
+						metaStartLine
+					)
+
+				elseif isDual then
+					outputFinalDualValueStatement(metaLineIndexStart, tokenIndex-1)
+				end
+
+				return
+			end
 
 			local tokType = tok.type
 			if
