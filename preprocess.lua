@@ -23,7 +23,7 @@
 	- toLua, serialize
 	Only during processing:
 	- getCurrentPathIn, getCurrentPathOut
-	- outputValue, outputLua
+	- outputValue, outputLua, outputLuaTemplate
 	Search this file for 'EnvironmentTable' for more info.
 
 	Exported stuff from the library:
@@ -270,6 +270,7 @@ function printTraceback(message, level)
 end
 
 function error(err, level)
+	-- @Check: Should we prepend the path? And, in all or just some cases?
 	level = 1+(level or 1)
 	printTraceback(tryToFormatError(err), level)
 	currentErrorHandler(err, level)
@@ -281,9 +282,9 @@ end
 function errorOnLine(path, ln, agent, s, ...)
 	s = s:format(...)
 	if agent then
-		printf("Error @ %s:%d: [%s] %s", path, ln, agent, s)
+		printf("Error @ %s:%d: [%s] %s\n", path, ln, agent, s)
 	else
-		printf("Error @ %s:%d: %s",      path, ln,        s)
+		printf("Error @ %s:%d: %s\n",      path, ln,        s)
 	end
 	currentErrorHandler(s, 2)
 	return s
@@ -1074,6 +1075,35 @@ function metaFuncs.outputLua(...)
 	end
 end
 
+-- outputLuaTemplate()
+--   Use a string as a template for outputting Lua code with values.
+--   Question marks (?) are replaced with the values.
+--   outputLuaTemplate( luaStringTemplate, value1, ... )
+--   Examples:
+--     outputLuaTemplate("local name, age = ?, ?", "Harry", 48)
+--     outputLuaTemplate("dogs[?] = ?", "greyhound", {italian=false, count=5})
+function metaFuncs.outputLuaTemplate(lua, ...)
+	errorIfNotRunningMeta(2)
+	assertarg(1, lua, "string")
+
+	local args = {...}
+	local n    = 0
+	local v, err
+
+	lua = lua:gsub("%?", function()
+		n      = n+1
+		v, err = toLua(args[n])
+
+		if not v then
+			error(F("Bad argument %d: %s", 1+n, err), 3)
+		end
+
+		return assert(v)
+	end)
+
+	table.insert(outputFromMeta, lua)
+end
+
 -- getCurrentPathIn()
 --   Get what file is currently being processed, if any.
 --   path = getCurrentPathIn( )
@@ -1841,12 +1871,16 @@ local function _processFileOrString(params, isFile)
 	end
 end
 
+local ERROR_REDIRECTION = setmetatable({}, {__tostring=function()return"Internal redirection of error."end})
+
 local function processFileOrString(params, isFile)
 	local returnValues  = nil
 	local errorToReturn = nil
 
 	isDebug = params.debug
 	pushErrorHandler(function(err, levelFromOurError)
+		if err == ERROR_REDIRECTION then  return  end
+
 		errorToReturn = err
 
 		if not levelFromOurError then
@@ -1854,6 +1888,8 @@ local function processFileOrString(params, isFile)
 		end
 
 		if params.onError then  params.onError(errorToReturn)  end
+
+		if levelFromOurError then  _error(ERROR_REDIRECTION)  end
 	end)
 
 	xpcall(

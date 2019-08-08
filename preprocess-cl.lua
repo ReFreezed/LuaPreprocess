@@ -83,7 +83,7 @@ exec lua "$0" "$@"
 	"init"
 		Sent before any other message.
 		Arguments:
-			paths: Array of file paths to process. Paths can be added or removed freely.
+			inputPaths: Array of file paths to process. Paths can be added or removed freely.
 			outputPaths: If the --outputpaths option is present this is an array of output paths for the respective path in inputPaths, otherwise it's nil.
 
 	"beforemeta"
