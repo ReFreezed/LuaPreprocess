@@ -58,6 +58,14 @@ print(s:match(ident))    -- "hello5"
 print(s:match(num))      -- "2"
 print(s:match(funcCall)) -- "hello5( foo )"
 
+-- File inserts.
+!(
+@insert "misc/quickTest.luapart"
+print("Metaprogram - someString: "..someString)
+)
+local uhh = !(@insert"misc/quickTest.txt")
+print("Final program - uhh: "..uhh)
+
 print(!("dataFromCommandLine: "..tostring(dataFromCommandLine)))
 print("The end.")
 

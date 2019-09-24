@@ -196,6 +196,8 @@ doTest("Output values of different types", function()
 	assert(not luaOut)
 end)
 
+-- @Incomplete: Add tests for @insert.
+
 
 
 addLabel("Library API")
