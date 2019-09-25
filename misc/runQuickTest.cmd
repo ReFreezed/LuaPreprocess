@@ -9,4 +9,4 @@ REM lua preprocess-cl.lua --debug --saveinfo=local/info.lua --data="Hello, world
 REM lua preprocess-cl.lua --debug --saveinfo=local/info.lua --data="Hello, world!" --outputpaths misc/quickTest.lua2p local/quickTest.output.lua
 REM lua preprocess-cl.lua --debug --saveinfo=local/info.lua --data="Hello, world!" --outputpaths misc/quickTest.lua2p local/quickTest.output.lua --linenumbers
 
-lua misc/quickTest.lua
+IF %ERRORLEVEL% EQU 0  lua misc/quickTest.lua

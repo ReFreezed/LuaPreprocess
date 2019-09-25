@@ -1216,25 +1216,25 @@ end
 --   Create a new token. Different token types take different arguments.
 --   token = newToken( tokenType, ... )
 --
---   commentToken      = newToken( "comment",     contents [, forceLongForm=false ] )
---   identifierToken   = newToken( "identifier",  identifier )
---   keywordToken      = newToken( "keyword",     keyword )
---   numberToken       = newToken( "number",      number [, numberFormat="auto" ] )
---   punctuationToken  = newToken( "punctuation", symbol )
---   stringToken       = newToken( "string",      contents [, longForm=false ] )
---   whitespaceToken   = newToken( "whitespace",  contents )
---   preprocessorToken = newToken( "pp_entry",    isDouble )
---   preprocessorToken = newToken( "pp_keyword",  keyword )
+--   commentToken     = newToken( "comment",     contents [, forceLongForm=false ] )
+--   identifierToken  = newToken( "identifier",  identifier )
+--   keywordToken     = newToken( "keyword",     keyword )
+--   numberToken      = newToken( "number",      number [, numberFormat="auto" ] )
+--   punctuationToken = newToken( "punctuation", symbol )
+--   stringToken      = newToken( "string",      contents [, longForm=false ] )
+--   whitespaceToken  = newToken( "whitespace",  contents )
+--   ppEntryToken     = newToken( "pp_entry",    isDouble )
+--   ppKeywordToken   = newToken( "pp_keyword",  keyword )
 --
---   commentToken      = { type="comment",     representation=string, value=string, long=isLongForm }
---   identifierToken   = { type="identifier",  representation=string, value=string }
---   keywordToken      = { type="keyword",     representation=string, value=string }
---   numberToken       = { type="number",      representation=string, value=number }
---   punctuationToken  = { type="punctuation", representation=string, value=string }
---   stringToken       = { type="string",      representation=string, value=string, long=isLongForm }
---   whitespaceToken   = { type="whitespace",  representation=string, value=string }
---   preprocessorToken = { type="pp_entry",    representation=string, value=string, double=isDouble }
---   preprocessorToken = { type="pp_keyword",  representation=string, value=string }
+--   commentToken     = { type="comment",     representation=string, value=string, long=isLongForm }
+--   identifierToken  = { type="identifier",  representation=string, value=string }
+--   keywordToken     = { type="keyword",     representation=string, value=string }
+--   numberToken      = { type="number",      representation=string, value=number }
+--   punctuationToken = { type="punctuation", representation=string, value=string }
+--   stringToken      = { type="string",      representation=string, value=string, long=isLongForm }
+--   whitespaceToken  = { type="whitespace",  representation=string, value=string }
+--   ppEntryToken     = { type="pp_entry",    representation=string, value=string, double=isDouble }
+--   ppKeywordToken   = { type="pp_keyword",  representation=string, value=string }
 --
 -- Number formats:
 --   "integer"      E.g. 42

@@ -71,7 +71,7 @@ print("The end.")
 
 !(
 --[==[ Test token stuff.
-for i, token in ipairs(assert(tokenize(getFileContents"quickTestInclude.lua"))) do
+for i, token in ipairs(assert(tokenize(assert(getFileContents"misc/quickTestInclude.lua")))) do
 	print(i, token.type, "", (token.representation:gsub("\n", "<NEWLINE>")))
 end
 
@@ -109,6 +109,8 @@ for _, token in ipairs{
 	-- newToken("whitespace",  "foo"), -- Error!
 	newToken("pp_entry",    false),
 	newToken("pp_entry",    true),
+	newToken("pp_keyword",  "insert"),
+	-- newToken("pp_keyword",  "foo"), -- Error!
 	-- newToken("nope",        nil), -- Error!
 } do
 	print("------------------------")

@@ -27,7 +27,8 @@ A separate [command line program](preprocess-cl.lua) is available too.
 
 
 ## Example Program
-The exclamation mark (!) is used to indicate what code is part of the metaprogram. ([See screenshot of processing steps with highlighting](misc/processingSteps.png))
+The exclamation mark (!) is used to indicate what code is part of the metaprogram.
+([See screenshot of processing steps with highlighting](https://raw.githubusercontent.com/ReFreezed/LuaPreprocess/master/misc/processingSteps.png))
 
 ```lua
 -- Normal Lua.
