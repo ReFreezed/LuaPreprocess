@@ -1458,7 +1458,15 @@ local function _processFileOrString(params, isFile)
 		local tok = tokenStack[#tokenStack]
 
 		if isToken(tok, "pp_keyword") then
-			if tok.value == "insert" then
+			if tok.value == "file" then
+				table.insert(tokens, {type="string", value=tok.file, representation=F("%q",tok.file)})
+				tokenStack[#tokenStack] = nil
+
+			elseif tok.value == "line" then
+				table.insert(tokens, {type="number", value=tok.line, representation=F("%d",tok.line)})
+				tokenStack[#tokenStack] = nil
+
+			elseif tok.value == "insert" then
 				local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
 				if not (tokNext and isToken(tokNext, "string")) then
 					errorAtToken(
@@ -1988,8 +1996,7 @@ local function processFileOrString(params, isFile)
 	local returnValues  = nil
 	local errorToReturn = nil
 
-	isDebug = params.debug
-	pushErrorHandler(function(err, levelFromOurError)
+	local function errHand(err, levelFromOurError)
 		if err == ERROR_REDIRECTION then  return  end
 
 		errorToReturn = err
@@ -2001,9 +2008,12 @@ local function processFileOrString(params, isFile)
 		if params.onError then  params.onError(errorToReturn)  end
 
 		if levelFromOurError then  _error(ERROR_REDIRECTION)  end
-	end)
+	end
 
-	xpcall(
+	isDebug = params.debug
+	pushErrorHandler(errHand)
+
+	local xpcallOk, xpcallErr = xpcall(
 		function()
 			returnValues = pack(_processFileOrString(params, isFile))
 		end,
@@ -2020,8 +2030,16 @@ local function processFileOrString(params, isFile)
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
 
+	-- Unhandled error.
+	if not (returnValues or errorToReturn) then
+		pcall(errHand, (not xpcallOk and xpcallErr or "Unknown processing error."))
+	end
+
+	-- Handled error.
 	if errorToReturn then
 		return nil, errorToReturn
+
+	-- Success.
 	else
 		return unpack(returnValues, 1, returnValues.n)
 	end

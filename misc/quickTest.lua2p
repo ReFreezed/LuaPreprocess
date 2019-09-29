@@ -66,7 +66,9 @@ print("Metaprogram - someString: "..someString)
 local uhh = !(@insert"misc/quickTest.txt")
 print("Final program - uhh: "..uhh)
 
+-- Misc.
 print(!("dataFromCommandLine: "..tostring(dataFromCommandLine)))
+print(!(("This file and line: %s:%d"):format(@file, @line)))
 print("The end.")
 
 !(
