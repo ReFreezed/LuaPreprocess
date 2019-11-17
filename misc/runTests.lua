@@ -196,7 +196,8 @@ doTest("Output values of different types", function()
 	assert(not luaOut)
 end)
 
--- @Incomplete: Add tests for @insert etc.
+-- @Incomplete: Add tests for @insert and the other pp keywords.
+-- @Incomplete: Add test for params.onInsert().
 
 
 

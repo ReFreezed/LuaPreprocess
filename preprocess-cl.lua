@@ -86,6 +86,12 @@ exec lua "$0" "$@"
 			inputPaths: Array of file paths to process. Paths can be added or removed freely.
 			outputPaths: If the --outputpaths option is present this is an array of output paths for the respective path in inputPaths, otherwise it's nil.
 
+	"insert"
+		Sent for each @insert statement. The handler is expected to return a Lua string.
+		Arguments:
+			path: The file being processed.
+			name: The name of the resource to be inserted (could be a file path or anything).
+
 	"beforemeta"
 		Sent before a file's metaprogram runs.
 		Arguments:
@@ -289,6 +295,21 @@ pp.metaEnvironment.dataFromCommandLine = customData -- May be nil.
 -- Load message handler.
 local messageHandler = nil
 
+local function hasMessageHandler(message)
+	if not messageHandler then
+		return false
+
+	elseif type(messageHandler) == "function" then
+		return true
+
+	elseif type(messageHandler) == "table" then
+		return messageHandler[message] ~= nil
+
+	else
+		assert(false)
+	end
+end
+
 local function sendMessage(message, ...)
 	if not messageHandler then
 		return
@@ -330,7 +351,7 @@ if messageHandlerPath ~= "" then
 			end
 		end
 	else
-		errorline(messageHandlerPath..": File did not return a function or table.")
+		errorline(messageHandlerPath..": File did not return a table or a function.")
 	end
 end
 
@@ -395,6 +416,23 @@ for i, pathIn in ipairs(pathsIn) do
 
 		debug          = isDebug,
 		addLineNumbers = addLineNumbers,
+
+		onInsert = (hasMessageHandler("insert") or nil) and function(name)
+			local lua = sendMessage("insert", pathIn, name)
+
+			-- onInsert() is expected to return a Lua string and so is the message handler.
+			-- However, if the handler is a single catch-all function we allow the message
+			-- to not be handled and we fall back to the default behavior of treating 'name'
+			-- as a path to a file to be inserted. If we didn't allow this then it would be
+			-- required for the "insert" message to be handled. I think it's better if the
+			-- user can choose whether to handle a message or not!
+			--
+			if lua == nil and type(messageHandler) == "function" then
+				return assert(pp.getFileContents(name))
+			end
+
+			return lua
+		end,
 
 		onBeforeMeta = messageHandler and function()
 			sendMessage("beforemeta", pathIn)

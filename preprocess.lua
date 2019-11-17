@@ -210,7 +210,6 @@ local isToken
 local loadLuaString, loadLuaFile
 local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
-local parseStringlike
 local printf, printTokens, printTraceback
 local pushErrorHandler, pushErrorHandlerIfOverridingDefault, popErrorHandler
 local serialize, toLua
@@ -325,7 +324,7 @@ function errorAtToken(fileBuffers, tok, pos, agent, s, ...)
 	errorInFile(fileBuffers[tok.file], tok.file, pos or tok.position, agent, s, ...)
 end
 
-function parseStringlike(s, ptr)
+local function parseStringlike(s, ptr)
 	local reprStart = ptr
 	local reprEnd
 
@@ -372,14 +371,14 @@ function parseStringlike(s, ptr)
 	return tok, ptr
 end
 
-local NUM_HEX_FRAC_EXP = ("^( 0x ([%dA-Fa-f]*) %.([%dA-Fa-f]+) [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
-local NUM_HEX_FRAC     = ("^( 0x ([%dA-Fa-f]*) %.([%dA-Fa-f]+)                        )"):gsub(" +", "")
-local NUM_HEX_EXP      = ("^( 0x ([%dA-Fa-f]+)                 [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
-local NUM_HEX          = ("^( 0x  [%dA-Fa-f]+                                         )"):gsub(" +", "")
-local NUM_DEC_FRAC_EXP = ("^(     %d*          %.%d+           [Ee][-+]?%d+           )"):gsub(" +", "")
-local NUM_DEC_FRAC     = ("^(     %d*          %.%d+                                  )"):gsub(" +", "")
-local NUM_DEC_EXP      = ("^(     %d+                          [Ee][-+]?%d+           )"):gsub(" +", "")
-local NUM_DEC          = ("^(     %d+                                                 )"):gsub(" +", "")
+local NUM_HEX_FRAC_EXP = ("^( 0[Xx] ([%dA-Fa-f]*) %.([%dA-Fa-f]+) [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
+local NUM_HEX_FRAC     = ("^( 0[Xx] ([%dA-Fa-f]*) %.([%dA-Fa-f]+)                        )"):gsub(" +", "")
+local NUM_HEX_EXP      = ("^( 0[Xx] ([%dA-Fa-f]+)                 [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
+local NUM_HEX          = ("^( 0[Xx]  [%dA-Fa-f]+                                         )"):gsub(" +", "")
+local NUM_DEC_FRAC_EXP = ("^(        %d*          %.%d+           [Ee][-+]?%d+           )"):gsub(" +", "")
+local NUM_DEC_FRAC     = ("^(        %d*          %.%d+                                  )"):gsub(" +", "")
+local NUM_DEC_EXP      = ("^(        %d+                          [Ee][-+]?%d+           )"):gsub(" +", "")
+local NUM_DEC          = ("^(        %d+                                                 )"):gsub(" +", "")
 
 -- tokens = tokenize( lua, filePath, allowBacktickStrings [, allowPreprocessorTokens=false ] )
 function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
@@ -584,7 +583,6 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 			tok = {type="whitespace", representation=whitespace, value=whitespace}
 
 		-- Punctuation etc.
-		-- "//", ">>", "<<",
 		elseif s:find("^%.%.%.", ptr) then
 			local repr = s:sub(ptr, ptr+2)
 			tok = {type="punctuation", representation=repr, value=repr}
@@ -1425,7 +1423,7 @@ local function _processFileOrString(params, isFile)
 		luaUnprocessed = params.code
 	end
 
-	local fileBuffers = {[pathIn]=luaUnprocessed}
+	local fileBuffers = {[pathIn]=luaUnprocessed} -- Doesn't have to be the contents of files if params.onInsert() is defined.
 
 	local specialFirstLine, rest = luaUnprocessed:match"^(#[^\r\n]*\r?\n?)(.*)$"
 	if specialFirstLine then
@@ -1443,7 +1441,7 @@ local function _processFileOrString(params, isFile)
 	local lineCountCode       = getLineCountWithCode(tokensRaw)
 	local tokenCount          = 0     -- Set later.
 	local hasPreprocessorCode = false -- Set later.
-	local insertedPaths       = {}
+	local insertedNames       = {}
 
 	-- Do preprocessor keyword stuff.
 	local tokenStack  = {}
@@ -1479,19 +1477,34 @@ local function _processFileOrString(params, isFile)
 					tokenStack[i] = nil
 				end
 
-				local toInsertPath = tokNext.value
-				local toInsertLua  = fileBuffers[toInsertPath]
+				local toInsertName = tokNext.value
+				local toInsertLua  = fileBuffers[toInsertName]
 
 				if not toInsertLua then
-					local err
-					toInsertLua, err = getFileContents(toInsertPath)
+					if params.onInsert then
+						toInsertLua = params.onInsert(toInsertName)
 
-					if not toInsertLua then
-						errorAtToken(fileBuffers, tokNext, tokNext.position+1, "Parser", "Could not read file: %s", err)
+						if type(toInsertLua) ~= "string" then
+							errorAtToken(
+								fileBuffers, tokNext, tokNext.position+1,
+								nil, "Expected a string from params.onInsert(). (Got %s)", type(toInsertLua)
+							)
+						end
+
+					else
+						local err
+						toInsertLua, err = getFileContents(toInsertName)
+
+						if not toInsertLua then
+							errorAtToken(
+								fileBuffers, tokNext, tokNext.position+1,
+								"Parser", "Could not read file: %s", tostring(err)
+							)
+						end
 					end
 
-					fileBuffers[toInsertPath] = toInsertLua
-					table.insert(insertedPaths, toInsertPath)
+					fileBuffers[toInsertName] = toInsertLua
+					table.insert(insertedNames, toInsertName)
 
 				else
 					insertCount = insertCount+1 -- Note: We don't count insertions of newly encountered files.
@@ -1501,12 +1514,12 @@ local function _processFileOrString(params, isFile)
 							fileBuffers, tokNext, tokNext.position+1, "Parser",
 							"Too many duplicate inserts. We may be stuck in a recursive loop."
 								.." (Unique files inserted so far: %s)",
-							table.concat(insertedPaths, ", ")
+							table.concat(insertedNames, ", ")
 						)
 					end
 				end
 
-				local toInsertTokens = tokenize(toInsertLua, toInsertPath, params.backtickStrings, true)
+				local toInsertTokens = tokenize(toInsertLua, toInsertName, params.backtickStrings, true)
 				for i = #toInsertTokens, 1, -1 do
 					table.insert(tokenStack, toInsertTokens[i])
 				end
@@ -1972,7 +1985,7 @@ local function _processFileOrString(params, isFile)
 		linesOfCode         = lineCountCode,
 		tokenCount          = tokenCount,
 		hasPreprocessorCode = hasPreprocessorCode,
-		insertedFiles       = insertedPaths,
+		insertedFiles       = insertedNames,
 	}
 
 	if params.onDone then  params.onDone(info)  end
@@ -2080,8 +2093,9 @@ local lib = {
 	--
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks.
 	--
-	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
 	--
 	processFile = processFile,
@@ -2101,6 +2115,7 @@ local lib = {
 	--
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks.
 	--
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--
