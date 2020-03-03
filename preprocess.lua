@@ -189,6 +189,7 @@ local currentPathIn            = ""
 local currentPathOut           = ""
 local metaPathForErrorMessages = ""
 local outputFromMeta           = nil
+local canOutputNil             = true
 
 --==============================================================
 --= Local Functions ============================================
@@ -1057,6 +1058,12 @@ function metaFuncs.outputValue(...)
 
 	for i = 1, argCount do
 		local v = select(i, ...)
+
+		if v == nil and not canOutputNil then
+			local ln = debug.getinfo(2, "l").currentline
+			errorOnLine(metaPathForErrorMessages, ln, "MetaProgram", "Trying to output nil which is disallowed through params.canOutputNil")
+		end
+
 		local ok, err = serialize(outputFromMeta, v)
 
 		if not ok then
@@ -1910,6 +1917,7 @@ local function _processFileOrString(params, isFile)
 
 	metaPathForErrorMessages = params.pathMeta or "<meta>"
 	outputFromMeta           = {}
+	canOutputNil             = params.canOutputNil ~= false
 
 	if params.pathMeta then
 		local file = assert(io.open(params.pathMeta, "wb"))
@@ -1942,6 +1950,7 @@ local function _processFileOrString(params, isFile)
 
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
+	canOutputNil             = true
 
 	if params.onAfterMeta then
 		local luaModified = params.onAfterMeta(lua)
@@ -2042,6 +2051,7 @@ local function processFileOrString(params, isFile)
 	currentPathOut           = ""
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
+	canOutputNil             = true
 
 	-- Unhandled error.
 	if not (returnValues or errorToReturn) then
@@ -2091,7 +2101,8 @@ local lib = {
 	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks.
+	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks. (Default: false)
+	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
@@ -2113,7 +2124,8 @@ local lib = {
 	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks.
+	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks. (Default: false)
+	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
