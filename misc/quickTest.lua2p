@@ -69,6 +69,14 @@ print("Final program - uhh: "..uhh)
 -- Misc.
 print(!("dataFromCommandLine: "..tostring(dataFromCommandLine)))
 print(!(("This file and line: %s:%d"):format(@file, @line)))
+
+for i = 1, 3 do
+	do
+		!outputLua("break")
+	end
+	!outputLua("break") -- Just a comment.
+end
+
 print("The end.")
 
 !(

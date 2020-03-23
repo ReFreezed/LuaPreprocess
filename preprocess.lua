@@ -1758,12 +1758,18 @@ local function _processFileOrString(params, isFile)
 
 				-- Fix whitespace after the line.
 				local tokNext = tokens[tokenIndex]
-				if not isDual and tokType == "whitespace" and not (tokNext and isToken(tokNext, "pp_entry")) then
+				if isDual or (tokNext and isToken(tokNext, "pp_entry")) then
+					-- void
+
+				elseif tokType == "whitespace" then
 					local tokExtra          = copyTable(tok)
 					tokExtra.value          = tok.value:gsub("^[^\n]+", "")
 					tokExtra.representation = tokExtra.value
 					tokExtra.position       = tokExtra.position+#tok.value-#tokExtra.value
+					table.insert(tokensToProcess, tokExtra)
 
+				elseif tokType == "comment" and not tok.long then
+					local tokExtra = {type="whitespace", representation="\n", value="\n", line=tok.line, position=tok.position}
 					table.insert(tokensToProcess, tokExtra)
 				end
 
