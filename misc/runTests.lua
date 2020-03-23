@@ -43,7 +43,9 @@ local function writeFile(path, data)
 end
 
 local function assertCodeOutput(codeOut, codeExpected, message)
-	assert(trim(codeOut) == codeExpected, (message or "Unexpected output: "..codeOut))
+	if trim(codeOut) ~= codeExpected then
+		error(message or "Unexpected output: "..codeOut, 2)
+	end
 end
 local function assertCmd(cmd)
 	local code = os.execute(cmd)
@@ -110,10 +112,7 @@ doTest("Generate code", function()
 	]]
 
 	local luaOut = assert(pp.processString{ code=luaIn })
-	assertCodeOutput(luaOut, ("local s = %q"):format("\n"))
-
-	local luaOut = assert(pp.processString{ code=luaIn, debug=true })
-	assertCodeOutput(luaOut, [[local s = "\n"]]) -- Debug mode changes how newlines appear in string values.
+	assertCodeOutput(luaOut, [[local s = "\n"]])
 end)
 
 doTest("Parsing extended preprocessor line", function()
@@ -296,7 +295,7 @@ print("Results:")
 
 for _, result in ipairs(results) do
 	if result.label then
-		print("------ "..result.label)
+		print("----- "..result.label)
 	elseif result.ok then
 		print("ok      "..result.description)
 	else
