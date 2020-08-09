@@ -513,6 +513,10 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 					end
 					ptr = ptr+2
 
+				elseif c == "\n" then
+					-- Can't have unescaped newlines. Lua, this is a silly rule! @Ugh
+					return nil, errorInFile(s, path, ptr, "Tokenizer", "Newlines must be escaped in strings.")
+
 				else
 					ptr = ptr+1
 				end
