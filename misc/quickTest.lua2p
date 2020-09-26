@@ -77,6 +77,10 @@ for i = 1, 3 do
 	!outputLua("break") -- Just a comment.
 end
 
+local HUGE_POSITIVE = !(math.huge)
+local HUGE_NEGATIVE = !(-math.huge)
+local NAN           = !(0/0)
+
 print("The end.")
 
 !(

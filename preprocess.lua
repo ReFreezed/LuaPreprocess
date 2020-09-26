@@ -133,6 +133,10 @@ local KEYWORDS = {
 	"goto",
 } for i, v in ipairs(KEYWORDS) do  KEYWORDS[v], KEYWORDS[i] = true, nil  end
 
+local PREPROCESSOR_KEYWORDS = {
+	"file","insert","line",
+} for i, v in ipairs(PREPROCESSOR_KEYWORDS) do  PREPROCESSOR_KEYWORDS[v], PREPROCESSOR_KEYWORDS[i] = true, nil  end
+
 local PUNCTUATION = {
 	"+",  "-",  "*",  "/",  "%",  "^",  "#",
 	"==", "~=", "<=", ">=", "<",  ">",  "=",
@@ -775,11 +779,11 @@ function serialize(buffer, v)
 		table.insert(buffer, '"'..s..'"')
 
 	elseif v == math.huge then
-		table.insert(buffer, "math.huge")
+		table.insert(buffer, "(1/0)")
 	elseif v == -math.huge then
-		table.insert(buffer, " -math.huge") -- The space prevents an accidental comment if a "-" is right before.
+		table.insert(buffer, "(-1/0)")
 	elseif v ~= v then
-		table.insert(buffer, "0/0") -- NaN.
+		table.insert(buffer, "(0/0)") -- NaN.
 	elseif v == 0 then
 		table.insert(buffer, "0") -- In case it's actually -0 for some reason, which would be silly to output.
 	elseif vType == "number" then
@@ -1236,7 +1240,7 @@ end
 --   stringToken      = newToken( "string",      contents [, longForm=false ] )
 --   whitespaceToken  = newToken( "whitespace",  contents )
 --   ppEntryToken     = newToken( "pp_entry",    isDouble )
---   ppKeywordToken   = newToken( "pp_keyword",  keyword )
+--   ppKeywordToken   = newToken( "pp_keyword",  ppKeyword )
 --
 --   commentToken     = { type="comment",     representation=string, value=string, long=isLongForm }
 --   identifierToken  = { type="identifier",  representation=string, value=string }
@@ -1260,7 +1264,8 @@ end
 function metaFuncs.newToken(tokType, ...)
 	if tokType == "comment" then
 		local comment, long = ...
-		long = not not (long or comment:find"[\r\n]")
+		long                = not not (long or comment:find"[\r\n]")
+		assert(type(comment) == "string")
 
 		local repr
 		if long then
@@ -1280,6 +1285,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "identifier" then
 		local ident = ...
+		assert(type(ident) == "string")
 
 		if ident == "" then
 			error("Identifier length is 0.")
@@ -1291,6 +1297,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "keyword" then
 		local keyword = ...
+		assert(type(keyword) == "string")
 
 		if not KEYWORDS[keyword] then
 			error(F("Bad keyword '%s'.", keyword))
@@ -1300,14 +1307,15 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "number" then
 		local n, numberFormat = ...
-		numberFormat = numberFormat or "auto"
+		numberFormat          = numberFormat or "auto"
+		assert(type(n) == "number")
 
 		-- Some of these are technically multiple other tokens. We could trigger an error but ehhh...
 		-- @Incomplete: Hexadecimal floats.
 		local numStr
-			=  n            ~= n             and "0/0"
-			or n            == math.huge     and "math.huge"
-			or n            == -math.huge    and " -math.huge" -- The space prevents an accidental comment if a "-" is right before.
+			=  n            ~= n             and "(0/0)"
+			or n            == math.huge     and "(1/0)"
+			or n            == -math.huge    and "(-1/0)"
 			or numberFormat == "auto"        and tostring(n)
 			or numberFormat == "integer"     and F("%d", n)
 			or numberFormat == "float"       and F("%f", n):gsub("(%d)0+$", "%1")
@@ -1321,6 +1329,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "punctuation" then
 		local symbol = ...
+		assert(type(symbol) == "string")
 
 		-- Note: "!" and "!!" are of a different token type (pp_entry).
 		if not PUNCTUATION[symbol] then
@@ -1331,7 +1340,8 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "string" then
 		local s, long = ...
-		long = not not long
+		long          = not not long
+		assert(type(s) == "string")
 
 		local repr
 		if long then
@@ -1351,6 +1361,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "whitespace" then
 		local whitespace = ...
+		assert(type(whitespace) == "string")
 
 		if whitespace == "" then
 			error("String is empty.")
@@ -1361,14 +1372,18 @@ function metaFuncs.newToken(tokType, ...)
 		return {type="whitespace", representation=whitespace, value=whitespace}
 
 	elseif tokType == "pp_entry" then
-		local double = not not ...
+		local double = ...
+		assert(type(double) == "boolean")
+
 		local symbol = double and "!!" or "!"
+
 		return {type="pp_entry", representation=symbol, value=symbol, double=double}
 
 	elseif tokType == "pp_keyword" then
 		local keyword = ...
+		assert(type(keyword) == "string")
 
-		if keyword ~= "insert" then
+		if not PREPROCESSOR_KEYWORDS[keyword] then
 			error(F("Bad preprocessor keyword '%s'.", keyword))
 		end
 
