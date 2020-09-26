@@ -122,7 +122,7 @@ setmetatable(_G, {__newindex=function(_G, k, v)
 end})
 --]]
 
-local VERSION = "1.11.0"
+local VERSION = "1.11.1"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: mak this a parameter for processFile()/processString().
 
