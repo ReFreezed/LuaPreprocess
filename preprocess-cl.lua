@@ -7,7 +7,7 @@ exec lua "$0" "$@"
 --=  LuaPreprocess command line program
 --=  by Marcus 'ReFreezed' Thunström
 --=
---=  Requires preprocess.lua!
+--=  Requires preprocess.lua to be in the same folder!
 --=
 --=  License: MIT (see the bottom of this file)
 --=  Website: https://github.com/ReFreezed/LuaPreprocess

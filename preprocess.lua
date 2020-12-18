@@ -124,7 +124,7 @@ end})
 
 local VERSION = "1.11.1"
 
-local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: mak this a parameter for processFile()/processString().
+local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
@@ -378,12 +378,12 @@ end
 
 local NUM_HEX_FRAC_EXP = ("^( 0[Xx] ([%dA-Fa-f]*) %.([%dA-Fa-f]+) [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
 local NUM_HEX_FRAC     = ("^( 0[Xx] ([%dA-Fa-f]*) %.([%dA-Fa-f]+)                        )"):gsub(" +", "")
-local NUM_HEX_EXP      = ("^( 0[Xx] ([%dA-Fa-f]+)                 [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
-local NUM_HEX          = ("^( 0[Xx]  [%dA-Fa-f]+                                         )"):gsub(" +", "")
+local NUM_HEX_EXP      = ("^( 0[Xx] ([%dA-Fa-f]+) %.?             [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
+local NUM_HEX          = ("^( 0[Xx]  [%dA-Fa-f]+  %.?                                    )"):gsub(" +", "")
 local NUM_DEC_FRAC_EXP = ("^(        %d*          %.%d+           [Ee][-+]?%d+           )"):gsub(" +", "")
 local NUM_DEC_FRAC     = ("^(        %d*          %.%d+                                  )"):gsub(" +", "")
-local NUM_DEC_EXP      = ("^(        %d+                          [Ee][-+]?%d+           )"):gsub(" +", "")
-local NUM_DEC          = ("^(        %d+                                                 )"):gsub(" +", "")
+local NUM_DEC_EXP      = ("^(        %d+          %.?             [Ee][-+]?%d+           )"):gsub(" +", "")
+local NUM_DEC          = ("^(        %d+          %.?                                    )"):gsub(" +", "")
 
 -- tokens = tokenize( lua, filePath, allowBacktickStrings [, allowPreprocessorTokens=false ] )
 function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
@@ -395,8 +395,15 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 		local tok
 		local tokenPos = ptr
 
+		-- Whitespace.
+		if s:find("^%s", ptr) then
+			local i1, i2, whitespace = s:find("^(%s+)", ptr)
+
+			ptr = i2+1
+			tok = {type="whitespace", representation=whitespace, value=whitespace}
+
 		-- Identifier/keyword.
-		if s:find("^[%a_]", ptr) then
+		elseif s:find("^[%a_]", ptr) then
 			local i1, i2, word = s:find("^([%a_][%w_]*)", ptr)
 			ptr = i2+1
 
@@ -583,13 +590,6 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 
 			ptr = i2+1
 			tok = {type="string", representation=repr, value=v, long=false}
-
-		-- Whitespace.
-		elseif s:find("^%s", ptr) then
-			local i1, i2, whitespace = s:find("^(%s+)", ptr)
-
-			ptr = i2+1
-			tok = {type="whitespace", representation=whitespace, value=whitespace}
 
 		-- Punctuation etc.
 		elseif s:find("^%.%.%.", ptr) then
@@ -2178,7 +2178,7 @@ return lib
 
 --[[!===========================================================
 
-Copyright © 2018-2019 Marcus 'ReFreezed' Thunström
+Copyright © 2018-2020 Marcus 'ReFreezed' Thunström
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
