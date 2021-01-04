@@ -2116,11 +2116,10 @@ local lib = {
 	----------------------------------------------------------------
 
 	-- processFile()
-	-- Process a Lua file.
+	-- Process a Lua file. Returns nil and a message on error.
 	--
-	-- info, error = processFile( params )
-	-- info: Table with various information, or nil if an error happened. See 'ProcessInfo' for more info.
-	-- error: Error message, or nil if no error happened.
+	-- info = processFile( params )
+	-- info: Table with various information. (See 'ProcessInfo' for more info.)
 	--
 	-- params: Table with these fields:
 	--   pathIn          = pathToInputFile       -- [Required]
@@ -2141,10 +2140,10 @@ local lib = {
 	processFile = processFile,
 
 	-- processString()
-	-- Process Lua code.
+	-- Process Lua code. Returns nil and a message on error.
 	--
 	-- luaString, info = processString( params )
-	-- info: Table with various information, or a message if an error happened. See 'ProcessInfo' for more info.
+	-- info: Table with various information. (See 'ProcessInfo' for more info.)
 	--
 	-- params: Table with these fields:
 	--   code            = luaString             -- [Required]
