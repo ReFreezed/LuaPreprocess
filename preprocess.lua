@@ -2130,7 +2130,7 @@ local lib = {
 	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks. (Default: false)
+	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
 	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
@@ -2153,7 +2153,7 @@ local lib = {
 	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
 	--
-	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain backticks. (Default: false)
+	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
 	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.

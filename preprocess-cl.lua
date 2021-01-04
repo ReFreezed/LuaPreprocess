@@ -27,6 +27,11 @@ exec lua "$0" "$@"
 		lua preprocess-cl.lua --outputpaths --linenumbers src/main.lua2p output/main.lua src/network.lua2p output/network.lua
 
 	Options:
+		--backtickstrings
+			Enable the backtick (`) to be used as string literal delimiters.
+			Backtick strings don't interpret any escape sequences and can't
+			contain other backticks.
+
 		--data|-d="Any data."
 			A string with any data. If the option is present then the value
 			will be available through the global 'dataFromCommandLine' in the
@@ -48,6 +53,9 @@ exec lua "$0" "$@"
 			Output the metaprogram to a temporary file (*.meta.lua). Useful
 			if an error happens in the metaprogram. This file is removed if
 			there's no error and --debug isn't enabled.
+
+		--nonil
+			Disallow !() and outputValue() to output nil.
 
 		--outputextension=fileExtension
 			Specify what file extension generated files should have. The
@@ -141,15 +149,17 @@ if not args[0] then  error("Expected to run from the Lua interpreter.")  end
 local pp = dofile((args[0]:gsub("[^/\\]+$", "preprocess.lua")))
 
 -- From args:
-local addLineNumbers     = false
-local customData         = nil
-local hasOutputExtension = false
-local hasOutputPaths     = false
-local isDebug            = false
-local outputExtension    = "lua"
-local outputMeta         = false
-local processingInfoPath = ""
-local silent             = false
+local addLineNumbers       = false
+local allowBacktickStrings = false
+local canOutputNil         = true
+local customData           = nil
+local hasOutputExtension   = false
+local hasOutputPaths       = false
+local isDebug              = false
+local outputExtension      = "lua"
+local outputMeta           = false
+local processingInfoPath   = ""
+local silent               = false
 
 --==============================================================
 --= Local Functions ============================================
@@ -233,6 +243,9 @@ for _, arg in ipairs(args) do
 	elseif arg:find"^%-%-data=" or arg:find"^%-d=" then
 		customData = arg:match"^%-%-data=(.*)$" or arg:match"^%-d=(.*)$"
 
+	elseif arg == "--backtickstrings" then
+		allowBacktickStrings = true
+
 	elseif arg == "--debug" then
 		isDebug    = true
 		outputMeta = true
@@ -245,6 +258,9 @@ for _, arg in ipairs(args) do
 
 	elseif arg == "--meta" then
 		outputMeta = true
+
+	elseif arg == "--nonil" then
+		canOutputNil = false
 
 	elseif arg:find"^%-%-outputextension=" then
 		if hasOutputPaths then
@@ -410,12 +426,15 @@ for i, pathIn in ipairs(pathsIn) do
 	end
 
 	local info = pp.processFile{
-		pathIn         = pathIn,
-		pathMeta       = pathMeta,
-		pathOut        = pathOut,
+		pathIn          = pathIn,
+		pathMeta        = pathMeta,
+		pathOut         = pathOut,
 
-		debug          = isDebug,
-		addLineNumbers = addLineNumbers,
+		debug           = isDebug,
+		addLineNumbers  = addLineNumbers,
+
+		backtickStrings = allowBacktickStrings,
+		canOutputNil    = canOutputNil,
 
 		onInsert = (hasMessageHandler("insert") or nil) and function(name)
 			local lua = sendMessage("insert", pathIn, name)
