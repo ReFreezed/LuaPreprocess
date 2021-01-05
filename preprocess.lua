@@ -6,7 +6,7 @@
 --=  License: MIT (see the bottom of this file)
 --=  Website: https://github.com/ReFreezed/LuaPreprocess
 --=
---=  Tested with Lua 5.1, 5.2 and 5.3.
+--=  Tested with Lua 5.1, 5.2, 5.3 and 5.4.
 --=
 --==============================================================
 
@@ -122,7 +122,7 @@ setmetatable(_G, {__newindex=function(_G, k, v)
 end})
 --]]
 
-local VERSION = "1.11.1"
+local VERSION = "1.11.2"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 

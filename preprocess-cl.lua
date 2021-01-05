@@ -12,7 +12,7 @@ exec lua "$0" "$@"
 --=  License: MIT (see the bottom of this file)
 --=  Website: https://github.com/ReFreezed/LuaPreprocess
 --=
---=  Tested with Lua 5.1, 5.2 and 5.3.
+--=  Tested with Lua 5.1, 5.2, 5.3 and 5.4.
 --=
 --==============================================================
 
