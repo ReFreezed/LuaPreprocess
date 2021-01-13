@@ -33,9 +33,10 @@ exec lua "$0" "$@"
 			contain other backticks.
 
 		--data|-d="Any data."
-			A string with any data. If the option is present then the value
+			A string with any data. If this option is present then the value
 			will be available through the global 'dataFromCommandLine' in the
-			processed files (and the message handler, if you have one).
+			processed files (and any message handler). Otherwise,
+			'dataFromCommandLine' is nil.
 
 		--handler|-h=pathToMessageHandler
 			Path to a Lua file that's expected to return a function or a
@@ -50,17 +51,19 @@ exec lua "$0" "$@"
 			Add comments with line numbers to the output.
 
 		--meta
-			Output the metaprogram to a temporary file (*.meta.lua). Useful
-			if an error happens in the metaprogram. This file is removed if
-			there's no error and --debug isn't enabled.
+			Output the metaprogram to a temporary file (*.meta.lua). Useful if
+			an error happens when the metaprogram runs. This file is removed
+			if there's no error and --debug isn't enabled.
 
 		--nonil
-			Disallow !() and outputValue() to output nil.
+			Disallow !(...) and outputValue(...) from outputting nil.
 
 		--outputextension=fileExtension
 			Specify what file extension generated files should have. The
 			default is "lua". If any input files end in .lua then you must
-			specify another file extension.
+			specify another file extension with this option. (It's suggested
+			that you use .lua2p (as in "Lua To Process") as extension for
+			unprocessed files.)
 
 		--outputpaths|-o
 			This flag makes every other specified path be the output path
@@ -531,7 +534,7 @@ printfNoise(
 
 --[[!===========================================================
 
-Copyright © 2018-2019 Marcus 'ReFreezed' Thunström
+Copyright © 2018-2021 Marcus 'ReFreezed' Thunström
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
