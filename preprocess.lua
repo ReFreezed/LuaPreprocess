@@ -198,8 +198,9 @@ local canOutputNil             = true
 --==============================================================
 --= Local Functions ============================================
 --==============================================================
+local _concatTokens
+local _tokenize
 local assertarg
-local concatTokens
 local copyTable
 local countString
 local error, errorline, errorOnLine, errorInFile, errorAtToken
@@ -218,7 +219,6 @@ local pack, unpack
 local printf, printTokens, printTraceback
 local pushErrorHandler, pushErrorHandlerIfOverridingDefault, popErrorHandler
 local serialize, toLua
-local tokenize
 
 F = string.format
 function tryToFormatError(err0)
@@ -385,8 +385,7 @@ local NUM_DEC_FRAC     = ("^(        %d*          %.%d+                         
 local NUM_DEC_EXP      = ("^(        %d+          %.?             [Ee][-+]?%d+           )"):gsub(" +", "")
 local NUM_DEC          = ("^(        %d+          %.?                                    )"):gsub(" +", "")
 
--- tokens = tokenize( lua, filePath, allowBacktickStrings [, allowPreprocessorTokens=false ] )
-function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
+function _tokenize(s, path, allowMetaTokens, allowBacktickStrings, allowJitSyntax)
 	local tokens = {}
 	local ptr    = 1
 	local ln     = 1
@@ -415,31 +414,48 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 
 		-- Number.
 		elseif s:find("^%.?%d", ptr) then
-			local           lua52Hex, i1, i2, numStr = true,  s:find(NUM_HEX_FRAC_EXP, ptr)
-			if not i1 then  lua52Hex, i1, i2, numStr = true,  s:find(NUM_HEX_FRAC,     ptr)  end
-			if not i1 then  lua52Hex, i1, i2, numStr = true,  s:find(NUM_HEX_EXP,      ptr)  end
-			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_HEX,          ptr)  end
-			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC_FRAC_EXP, ptr)  end
-			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC_FRAC,     ptr)  end
-			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC_EXP,      ptr)  end
-			if not i1 then  lua52Hex, i1, i2, numStr = false, s:find(NUM_DEC,          ptr)  end
+			local           pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_HEX_FRAC_EXP, false, true,  s:find(NUM_HEX_FRAC_EXP, ptr)
+			if not i1 then  pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_HEX_FRAC,     false, true,  s:find(NUM_HEX_FRAC,     ptr)
+			if not i1 then  pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_HEX_EXP,      false, true,  s:find(NUM_HEX_EXP,      ptr)
+			if not i1 then  pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_HEX,          true,  false, s:find(NUM_HEX,          ptr)
+			if not i1 then  pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_DEC_FRAC_EXP, false, false, s:find(NUM_DEC_FRAC_EXP, ptr)
+			if not i1 then  pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_DEC_FRAC,     false, false, s:find(NUM_DEC_FRAC,     ptr)
+			if not i1 then  pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_DEC_EXP,      false, false, s:find(NUM_DEC_EXP,      ptr)
+			if not i1 then  pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_DEC,          true,  false, s:find(NUM_DEC,          ptr)
+			end end end end end end end
 
 			if not numStr then
 				return nil, errorInFile(s, path, ptr, "Tokenizer", "Malformed number.")
 			end
-			if s:find("^[%w_]", i2+1) then
-				-- This is actually only an error in Lua 5.1. Maybe we should issue a warning instead of an error here?
-				return nil, errorInFile(s, path, i2+1, "Tokenizer", "Malformed number.")
+
+			local numStrFallback = numStr
+
+			if allowJitSyntax then
+				if s:find("^[Ii]", i2+1) then -- Imaginary part of complex number.
+					numStr = s:sub(i1, i2+1)
+					i2     = i2 + 1
+
+				elseif not maybeInt or numStr:find(".", 1, true) then
+					-- void
+				elseif s:find("^[Uu][Ll][Ll]", i2+1) then -- Unsigned 64-bit integer.
+					numStr = s:sub(i1, i2+3)
+					i2     = i2 + 3
+				elseif s:find("^[Ll][Ll]", i2+1) then -- Signed 64-bit integer.
+					numStr = s:sub(i1, i2+2)
+					i2     = i2 + 2
+				end
 			end
 
-			local n = tonumber(numStr)
+			local n = tonumber(numStr) or tonumber(numStrFallback)
 
 			-- Support hexadecimal floats in Lua 5.1.
 			if not n and lua52Hex then
-				local               _, intStr, fracStr, expStr = numStr:match(NUM_HEX_FRAC_EXP)
-				if not intStr then  _, intStr, fracStr         = numStr:match(NUM_HEX_FRAC) ; expStr  = "0"  end
-				if not intStr then  _, intStr,          expStr = numStr:match(NUM_HEX_EXP)  ; fracStr = ""   end
-				assert(intStr, numStr)
+				-- Note: We know we're not running LuaJIT here as it supports hexadecimal floats, thus we use numStrFallback instead of numStr.
+				local                                _, intStr, fracStr, expStr
+				if     pat == NUM_HEX_FRAC_EXP then  _, intStr, fracStr, expStr = numStrFallback:match(NUM_HEX_FRAC_EXP)
+				elseif pat == NUM_HEX_FRAC     then  _, intStr, fracStr         = numStrFallback:match(NUM_HEX_FRAC) ; expStr  = "0"
+				elseif pat == NUM_HEX_EXP      then  _, intStr,          expStr = numStrFallback:match(NUM_HEX_EXP)  ; fracStr = ""
+				else assert(false) end
 
 				n = tonumber(intStr, 16) or 0 -- intStr may be "".
 
@@ -454,6 +470,11 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 
 			if not n then
 				return nil, errorInFile(s, path, ptr, "Tokenizer", "Invalid number.")
+			end
+
+			if s:find("^[%w_]", i2+1) then
+				-- This is actually only an error in Lua 5.1. Maybe we should issue a warning instead of an error here?
+				return nil, errorInFile(s, path, i2+1, "Tokenizer", "Malformed number.")
 			end
 
 			ptr = i2+1
@@ -592,15 +613,15 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 			tok = {type="string", representation=repr, value=v, long=false}
 
 		-- Punctuation etc.
-		elseif s:find("^%.%.%.", ptr) then
+		elseif s:find("^%.%.%.", ptr) then -- 3
 			local repr = s:sub(ptr, ptr+2)
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
-		elseif s:find("^%.%.", ptr) or s:find("^[=~<>]=", ptr) or s:find("^::", ptr) or s:find("^//", ptr) or s:find("^<<", ptr) or s:find("^>>", ptr) then
+		elseif s:find("^%.%.", ptr) or s:find("^[=~<>]=", ptr) or s:find("^::", ptr) or s:find("^//", ptr) or s:find("^<<", ptr) or s:find("^>>", ptr) then -- 2
 			local repr = s:sub(ptr, ptr+1)
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
-		elseif s:find("^[+%-*/%%^#<>=(){}[%];:,.]", ptr) then
+		elseif s:find("^[+%-*/%%^#<>=(){}[%];:,.&|~]", ptr) then -- 1
 			local repr = s:sub(ptr, ptr)
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
@@ -636,7 +657,7 @@ function tokenize(s, path, allowBacktickStrings, allowMetaTokens)
 	return tokens
 end
 
-function concatTokens(tokens, lastLn, addLineNumbers)
+function _concatTokens(tokens, lastLn, addLineNumbers)
 	local parts = {}
 
 	if addLineNumbers then
@@ -1157,7 +1178,7 @@ end
 --   }
 function metaFuncs.tokenize(lua, allowMetaTokens)
 	pushErrorHandler(NOOP)
-	local tokens, err = tokenize(lua, "<string>", allowMetaTokens, allowMetaTokens)
+	local tokens, err = _tokenize(lua, "<string>", allowMetaTokens, allowMetaTokens, true) -- @Incomplete: Make allowJitSyntax a parameter to tokenize()?
 	popErrorHandler()
 	return tokens, err
 end
@@ -1177,7 +1198,7 @@ function metaFuncs.removeUselessTokens(tokens)
 		end
 	end
 
-	for i = len+offset+1, len do
+	for i = len, len+offset+1, -1 do
 		tokens[i] = nil
 	end
 end
@@ -1398,7 +1419,7 @@ end
 --   Concatinate tokens by their representations.
 --   luaString = concatTokens( tokens )
 function metaFuncs.concatTokens(tokens)
-	return concatTokens(tokens)
+	return _concatTokens(tokens)
 end
 
 
@@ -1459,7 +1480,7 @@ local function _processFileOrString(params, isFile)
 		luaUnprocessed = rest
 	end
 
-	local tokensRaw = tokenize(luaUnprocessed, pathIn, params.backtickStrings, true)
+	local tokensRaw = _tokenize(luaUnprocessed, pathIn, true, params.backtickStrings, params.jitSyntax)
 	-- printTokens(tokensRaw)
 
 	-- Info variables.
@@ -1548,7 +1569,7 @@ local function _processFileOrString(params, isFile)
 					end
 				end
 
-				local toInsertTokens = tokenize(toInsertLua, toInsertName, params.backtickStrings, true)
+				local toInsertTokens = _tokenize(toInsertLua, toInsertName, true, params.backtickStrings, params.jitSyntax)
 				for i = #toInsertTokens, 1, -1 do
 					table.insert(tokenStack, toInsertTokens[i])
 				end
@@ -1589,7 +1610,7 @@ local function _processFileOrString(params, isFile)
 	local function flushTokensToProcess()
 		if not tokensToProcess[1] then  return  end
 
-		local lua = concatTokens(tokensToProcess, ln, params.addLineNumbers)
+		local lua = _concatTokens(tokensToProcess, ln, params.addLineNumbers)
 		local luaMeta
 
 		if isDebug then
@@ -1881,7 +1902,7 @@ local function _processFileOrString(params, isFile)
 				tokenIndex = tokenIndex+1
 			end
 
-			local metaBlock = concatTokens(tokensInBlock, nil, params.addLineNumbers)
+			local metaBlock = _concatTokens(tokensInBlock, nil, params.addLineNumbers)
 
 			if loadLuaString("return("..metaBlock..")") then
 				table.insert(metaParts, (doOutputLua and "__LUA((" or "__VAL(("))
@@ -2003,15 +2024,14 @@ local function _processFileOrString(params, isFile)
 	end
 
 	-- Check if the output is valid Lua.
-	--
-	-- @Incomplete: Maybe add an option to disable this? It might be useful if
-	-- e.g. Lua 5.1 is used to generate Lua 5.3 code (for whatever reason).
-	--
-	local luaToCheck     = lua:gsub("^#![^\n]*", "")
-	local mainChunk, err = loadLuaString(luaToCheck, (isFile and params.pathMeta and "@" or "")..pathOut)
-	if not mainChunk then
-		local ln, _err = err:match'^.-:(%d+): (.*)'
-		errorOnLine(pathOut, (tonumber(ln) or 0), nil, "%s", (_err or err))
+	if params.validate ~= false then
+		local luaToCheck     = lua:gsub("^#![^\n]*", "")
+		local mainChunk, err = loadLuaString(luaToCheck, (isFile and params.pathMeta and "@" or "")..pathOut)
+
+		if not mainChunk then
+			local ln, _err = err:match'^.-:(%d+): (.*)'
+			errorOnLine(pathOut, (tonumber(ln) or 0), nil, "%s", (_err or err))
+		end
 	end
 
 	-- :ProcessInfo
@@ -2131,6 +2151,8 @@ local lib = {
 	--
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
 	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
+	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
+	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
@@ -2154,6 +2176,8 @@ local lib = {
 	--
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
 	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
+	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
+	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.

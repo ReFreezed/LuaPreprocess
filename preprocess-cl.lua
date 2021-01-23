@@ -47,6 +47,11 @@ exec lua "$0" "$@"
 			(See 'Handler messages' and misc/testHandler.lua)
 			The file shares the same environment as the processed files.
 
+		--jitsyntax
+			Allow LuaJIT-specific syntax, specifically literals for 64-bit
+			integers and complex numbers.
+			(https://luajit.org/ext_ffi_api.html#literals)
+
 		--linenumbers
 			Add comments with line numbers to the output.
 
@@ -57,6 +62,9 @@ exec lua "$0" "$@"
 
 		--nonil
 			Disallow !(...) and outputValue(...) from outputting nil.
+
+		--novalidate
+			Disable validation of outputted Lua.
 
 		--outputextension=fileExtension
 			Specify what file extension generated files should have. The
@@ -154,6 +162,7 @@ local pp = dofile((args[0]:gsub("[^/\\]+$", "preprocess.lua")))
 -- From args:
 local addLineNumbers       = false
 local allowBacktickStrings = false
+local allowJitSyntax       = false
 local canOutputNil         = true
 local customData           = nil
 local hasOutputExtension   = false
@@ -163,6 +172,7 @@ local outputExtension      = "lua"
 local outputMeta           = false
 local processingInfoPath   = ""
 local silent               = false
+local validate             = true
 
 --==============================================================
 --= Local Functions ============================================
@@ -256,6 +266,9 @@ for _, arg in ipairs(args) do
 	elseif arg:find"^%-%-handler=" or arg:find"^%-h=" then
 		messageHandlerPath = arg:match"^%-%-handler=(.*)$" or arg:match"^%-h=(.*)$"
 
+	elseif arg == "--jitsyntax" then
+		allowJitSyntax = true
+
 	elseif arg == "--linenumbers" then
 		addLineNumbers = true
 
@@ -264,6 +277,9 @@ for _, arg in ipairs(args) do
 
 	elseif arg == "--nonil" then
 		canOutputNil = false
+
+	elseif arg == "--novalidate" then
+		validate = false
 
 	elseif arg:find"^%-%-outputextension=" then
 		if hasOutputPaths then
@@ -438,6 +454,8 @@ for i, pathIn in ipairs(pathsIn) do
 
 		backtickStrings = allowBacktickStrings,
 		canOutputNil    = canOutputNil,
+		jitSyntax       = allowJitSyntax,
+		validate        = validate,
 
 		onInsert = (hasMessageHandler("insert") or nil) and function(name)
 			local lua = sendMessage("insert", pathIn, name)
