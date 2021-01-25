@@ -130,7 +130,7 @@ exec lua "$0" "$@"
 			info: Info about the processed file. (See 'ProcessInfo' in preprocess.lua)
 
 	"fileerror"
-		Sent if an error happens while processing a file (right before the program quits).
+		Sent if an error happens while processing a file (right before the program exits).
 		Arguments:
 			path: The file being processed.
 			error: The error message.

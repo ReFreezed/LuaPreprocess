@@ -122,7 +122,7 @@ setmetatable(_G, {__newindex=function(_G, k, v)
 end})
 --]]
 
-local VERSION = "1.11.2"
+local VERSION = "1.12.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -252,7 +252,7 @@ function printTraceback(message, level)
 	print(message)
 	print("stack traceback:")
 
-	for level = 1+(level or 1), math.huge do
+	for level = 1+(level or 1), 1/0 do
 		local info = debug.getinfo(level, "nSl")
 		if not info then  break  end
 
@@ -799,9 +799,9 @@ function serialize(buffer, v)
 
 		table.insert(buffer, '"'..s..'"')
 
-	elseif v == math.huge then
+	elseif v == 1/0 then
 		table.insert(buffer, "(1/0)")
-	elseif v == -math.huge then
+	elseif v == -1/0 then
 		table.insert(buffer, "(-1/0)")
 	elseif v ~= v then
 		table.insert(buffer, "(0/0)") -- NaN.
@@ -956,8 +956,8 @@ function getNextUsableToken(tokens, i, iLimit, dir)
 
 	iLimit
 		=   dir < 0
-		and math.max((iLimit or 1), 1)
-		or  math.min((iLimit or math.huge), #tokens)
+		and math.max((iLimit or 1  ), 1)
+		or  math.min((iLimit or 1/0), #tokens)
 
 	for i = i, iLimit, dir do
 		if not USELESS_TOKENS[tokens[i].type] then
@@ -1275,11 +1275,16 @@ end
 --
 -- Number formats:
 --   "integer"      E.g. 42
+--   "int"          Same as integer, e.g. 42
 --   "float"        E.g. 3.14
 --   "scientific"   E.g. 0.7e+12
 --   "SCIENTIFIC"   E.g. 0.7E+12 (upper case)
+--   "e"            Same as scientific, e.g. 0.7e+12
+--   "E"            Same as SCIENTIFIC, e.g. 0.7E+12 (upper case)
 --   "hexadecimal"  E.g. 0x19af
 --   "HEXADECIMAL"  E.g. 0x19AF (upper case)
+--   "hex"          Same as hexadecimal, e.g. 0x19af
+--   "HEX"          Same as HEXADECIMAL, e.g. 0x19AF (upper case)
 --   "auto"         Note: Infinite numbers and NaN always get automatic format.
 --
 function metaFuncs.newToken(tokType, ...)
@@ -1335,15 +1340,20 @@ function metaFuncs.newToken(tokType, ...)
 		-- @Incomplete: Hexadecimal floats.
 		local numStr
 			=  n            ~= n             and "(0/0)"
-			or n            == math.huge     and "(1/0)"
-			or n            == -math.huge    and "(-1/0)"
+			or n            == 1/0           and "(1/0)"
+			or n            == -1/0          and "(-1/0)"
 			or numberFormat == "auto"        and tostring(n)
 			or numberFormat == "integer"     and F("%d", n)
+			or numberFormat == "int"         and F("%d", n)
 			or numberFormat == "float"       and F("%f", n):gsub("(%d)0+$", "%1")
 			or numberFormat == "scientific"  and F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1")
 			or numberFormat == "SCIENTIFIC"  and F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1")
+			or numberFormat == "e"           and F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1")
+			or numberFormat == "E"           and F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1")
 			or numberFormat == "hexadecimal" and (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet."))
 			or numberFormat == "HEXADECIMAL" and (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet."))
+			or numberFormat == "hex"         and (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet."))
+			or numberFormat == "HEX"         and (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet."))
 			or error(F("Invalid number format '%s'.", numberFormat))
 
 		return {type="number", representation=numStr, value=n}

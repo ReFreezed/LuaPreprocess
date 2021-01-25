@@ -195,8 +195,25 @@ doTest("Output values of different types", function()
 	assert(not luaOut)
 end)
 
--- @Incomplete: Add tests for @insert and the other pp keywords.
--- @Incomplete: Add test for params.onInsert().
+doTest("Preprocessor keywords", function()
+	local pp = assert(loadfile"preprocess.lua")()
+
+	local luaOut = assert(pp.processString{ code=[[ filename = @file ]]})
+	assertCodeOutput(luaOut, [[filename = "<code>"]]) -- Note: The dummy value when we have no real path may change in the future.
+
+	local luaOut = assert(pp.processString{ code=[[ ln = @line ]]})
+	assertCodeOutput(luaOut, [[ln = 1]])
+
+	local luaOut = assert(pp.processString{
+		code = [[
+			v = @insert "foo"
+		]],
+		onInsert = function(name)
+			return '"bar"'
+		end,
+	})
+	assertCodeOutput(luaOut, [[v = "bar"]])
+end)
 
 
 
@@ -208,7 +225,7 @@ doTest("Get useful tokens", function()
 
 	pp.removeUselessTokens(tokens)
 
-	assert(#tokens == 4, "Unexpected amount of tokens.")
+	assert(#tokens == 4, "Unexpected token count.")
 	assert(tokens[1].type  == "keyword",     "Unexpected token type 1.")
 	assert(tokens[1].value == "local",       "Unexpected token value 1.")
 	assert(tokens[2].type  == "identifier",  "Unexpected token type 2.")
