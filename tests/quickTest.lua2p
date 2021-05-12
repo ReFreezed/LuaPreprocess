@@ -32,20 +32,20 @@ end
 )
 
 local c   = !(100+sum(10, 5))
-local str = !(run("misc/quickTestInclude.lua", "what"))
+local str = !(run("tests/quickTestInclude.lua", "what"))
 
 _G.!!("global"..math.random(5)) = 99
 
 
 
 -- Extended preprocessor line. (Balanced brackets.)
-!local arr = {
+!local arr = { -- Starts here.
 	10,
 }; local z = (
 	100+(3^3)
 )+arr[
 	1
-]
+] -- Ends here.
 local z = !(z)
 
 !local justTheLetterD = "d"
@@ -68,10 +68,10 @@ print(s:match(funcCall)) -- "hello5( foo )"
 
 -- File inserts.
 !(
-@insert "misc/quickTest.luapart"
+@insert "tests/quickTest.luapart"
 print("Metaprogram - someString: "..someString)
 )
-local uhh = !(@insert"misc/quickTest.txt")
+local uhh = !(@insert"tests/quickTest.txt")
 print("Final program - uhh: "..uhh)
 
 
@@ -129,7 +129,7 @@ print("The end.")
 
 !(
 --[==[ Test token stuff.
-for i, token in ipairs(assert(tokenize(assert(getFileContents"misc/quickTestInclude.lua")))) do
+for i, token in ipairs(assert(tokenize(assert(getFileContents"tests/quickTestInclude.lua")))) do
 	print(i, token.type, "", (token.representation:gsub("\n", "<NEWLINE>")))
 end
 

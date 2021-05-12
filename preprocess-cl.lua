@@ -22,7 +22,7 @@ exec lua "$0" "$@"
 		lua preprocess-cl.lua --outputpaths [options] [--] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
 
 	Examples:
-		lua preprocess-cl.lua --saveinfo=misc/info.lua --silent src/main.lua2p src/network.lua2p
+		lua preprocess-cl.lua --saveinfo=logs/info.lua --silent src/main.lua2p src/network.lua2p
 		lua preprocess-cl.lua --debug src/main.lua2p src/network.lua2p
 		lua preprocess-cl.lua --outputpaths --linenumbers src/main.lua2p output/main.lua src/network.lua2p output/network.lua
 
@@ -44,7 +44,7 @@ exec lua "$0" "$@"
 			called with various messages as it's first argument. If it's
 			a table, the keys should be the message names and the values
 			should be functions to handle the respective message.
-			(See 'Handler messages' and misc/testHandler.lua)
+			(See 'Handler messages' and tests/testHandler.lua)
 			The file shares the same environment as the processed files.
 
 		--jitsyntax

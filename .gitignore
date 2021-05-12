@@ -1,10 +1,10 @@
-/local/
-/wiki/
+local/
 
 /*.sublime-*
+/wiki/
 
-/misc/quicktest.lua
-/misc/quicktest.meta.lua
+/tests/quickTest.lua
+/tests/quickTest.meta.lua
 
 /examples/*.lua
 !/examples/*.output.lua
