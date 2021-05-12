@@ -213,6 +213,7 @@ local F, tryToFormatError
 local getFileContents, fileExists
 local getLineNumber
 local getNextUsableToken
+local getRelativeLocationText
 local insertTokenRepresentations
 local isAny
 local isToken, isTokenAndNotNil
@@ -535,9 +536,9 @@ function _tokenize(s, path, allowMetaTokens, allowBacktickStrings, allowJitSynta
 
 			if tok.long then
 				-- Check for nesting of [[...]], which is depricated in Lua.
-				local mainChunk, err = loadLuaString("--"..tok.representation, "")
+				local mainChunk, err = loadLuaString("--"..tok.representation, "@")
 				if not mainChunk then
-					local lnInString, _err = err:match'^%[string ""%]:(%d+): (.*)'
+					local lnInString, _err = err:match'^:(%d+): (.*)'
 					if not _err then
 						return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long comment.")
 					end
@@ -619,9 +620,9 @@ function _tokenize(s, path, allowMetaTokens, allowBacktickStrings, allowJitSynta
 			end
 
 			-- Check for nesting of [[...]], which is depricated in Lua.
-			local valueChunk, err = loadLuaString("return"..tok.representation, "")
+			local valueChunk, err = loadLuaString("return"..tok.representation, "@")
 			if not valueChunk then
-				local lnInString, _err = err:match'^%[string ""%]:(%d+): (.*)'
+				local lnInString, _err = err:match'^:(%d+): (.*)'
 				if not _err then
 					return nil, errorInFile(s, path, reprStart, "Tokenizer", "Malformed long string.")
 				end
@@ -1088,6 +1089,20 @@ do
 		end
 		currentErrorHandler = errorHandlers[#errorHandlers]
 	end
+end
+
+
+
+-- getRelativeLocationText( tokenOfInterest, otherToken )
+-- getRelativeLocationText( tokenOfInterest, otherFilename, otherLineNumber )
+function getRelativeLocationText(tokOfInterest, otherFilename, otherLn)
+	if type(otherFilename) == "table" then
+		return getRelativeLocationText(tokOfInterest, otherFilename.file, otherFilename.line)
+	end
+
+	if tokOfInterest.file ~= otherFilename then  return F("at %s:%d", tokOfInterest.file, tokOfInterest.line)  end
+	if tokOfInterest.line ~= otherLn       then  return F("on line %d", tokOfInterest.line)  end
+	return "on the same line"
 end
 
 
@@ -1712,28 +1727,30 @@ local function processKeywords(tokensRaw, fileBuffers, params, stats)
 						local bracketDepth  = 1
 
 						while true do
-							if not tokenStack[1] then
+							tok = tokenStack[#tokenStack]
+
+							if not tok then
 								errorAtToken(fileBuffers, tableStartTok, nil, "Macro", "Syntax error: Could not find end of table constructor before EOF.")
 
 							-- @Copypaste from above. @Cleanup
-							elseif isLastToken(tokenStack, "pp_keyword", "file") then
+							elseif isToken(tok, "pp_keyword", "file") then
 								local ppKwTokInner = table.remove(tokenStack) -- "@file"
 								table.insert(argTokens, newTokenAt({type="string", value=ppKwTokInner.file, representation=F("%q",ppKwTokInner.file)}, ppKwTokInner))
-							elseif isLastToken(tokenStack, "pp_keyword", "line") then
+							elseif isToken(tok, "pp_keyword", "line") then
 								local ppKwTokInner = table.remove(tokenStack) -- "@line"
 								table.insert(argTokens, newTokenAt({type="number", value=ppKwTokInner.line, representation=F("%d",ppKwTokInner.line)}, ppKwTokInner))
 
-							elseif tokenStack[#tokenStack].type:find"^pp_" then
-								errorAtToken(fileBuffers, tokenStack[#tokenStack], nil, "Macro", "Preprocessor code not supported in macros.")
+							elseif tok.type:find"^pp_" then
+								errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starting %s)", getRelativeLocationText(ppKeywordTok, tok))
 
-							elseif bracketDepth == 1 and isLastToken(tokenStack, "punctuation", "}") then
+							elseif bracketDepth == 1 and isToken(tok, "punctuation", "}") then
 								table.insert(argTokens, table.remove(tokenStack))
 								break
 
 							else
-								if isLastToken(tokenStack, "punctuation", "{") then
+								if isToken(tok, "punctuation", "{") then
 									bracketDepth = bracketDepth + 1
-								elseif isLastToken(tokenStack, "punctuation", "}") then
+								elseif isToken(tok, "punctuation", "}") then
 									bracketDepth = bracketDepth - 1
 								end
 								table.insert(argTokens, table.remove(tokenStack))
@@ -1791,37 +1808,62 @@ local function processKeywords(tokensRaw, fileBuffers, params, stats)
 							for argNum = 1, 1/0 do
 								local argStartTok = tokenStack[#tokenStack]
 								local argTokens   = {}
-								local parensDepth = 0
+								local depthStack  = {}
 								popUseless(tokenStack)
 
 								-- Collect tokens for this arg.
 								while true do
-									if not tokenStack[1] then
+									tok = tokenStack[#tokenStack]
+
+									if not tok then
 										errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
 
 									-- @Copypaste from above. @Cleanup
-									elseif isLastToken(tokenStack, "pp_keyword", "file") then
+									elseif isToken(tok, "pp_keyword", "file") then
 										local ppKwTokInner = table.remove(tokenStack) -- "@file"
 										table.insert(argTokens, newTokenAt({type="string", value=ppKwTokInner.file, representation=F("%q",ppKwTokInner.file)}, ppKwTokInner))
-									elseif isLastToken(tokenStack, "pp_keyword", "line") then
+									elseif isToken(tok, "pp_keyword", "line") then
 										local ppKwTokInner = table.remove(tokenStack) -- "@line"
 										table.insert(argTokens, newTokenAt({type="number", value=ppKwTokInner.line, representation=F("%d",ppKwTokInner.line)}, ppKwTokInner))
 
-									elseif tokenStack[#tokenStack].type:find"^pp_" then
-										errorAtToken(fileBuffers, tokenStack[#tokenStack], nil, "Macro", "Preprocessor code not supported in macros.")
+									elseif tok.type:find"^pp_" then
+										errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starting %s)", getRelativeLocationText(ppKeywordTok, tok))
 
-									elseif parensDepth == 0 and isLastToken(tokenStack, "punctuation", ",") then
-										break
-
-									elseif parensDepth == 0 and isLastToken(tokenStack, "punctuation", ")") then
+									elseif not depthStack[1] and (isToken(tok, "punctuation", ",") or isToken(tok, "punctuation", ")")) then
 										break
 
 									else
-										if isLastToken(tokenStack, "punctuation", "(") then
-											parensDepth = parensDepth + 1
-										elseif isLastToken(tokenStack, "punctuation", ")") then
-											parensDepth = parensDepth - 1
+										if isToken(tok, "punctuation", "(") then
+											table.insert(depthStack, {startToken=tok, [1]="punctuation", [2]=")"})
+										elseif isToken(tok, "punctuation", "[") then
+											table.insert(depthStack, {startToken=tok, [1]="punctuation", [2]="]"})
+										elseif isToken(tok, "punctuation", "{") then
+											table.insert(depthStack, {startToken=tok, [1]="punctuation", [2]="}"})
+										elseif isToken(tok, "keyword", "function") or isToken(tok, "keyword", "if") or isToken(tok, "keyword", "do") then
+											table.insert(depthStack, {startToken=tok, [1]="keyword", [2]="end"})
+										elseif isToken(tok, "keyword", "repeat") then
+											table.insert(depthStack, {startToken=tok, [1]="keyword", [2]="until"})
+
+										elseif
+											isToken(tok, "punctuation", ")")   or
+											isToken(tok, "punctuation", "]")   or
+											isToken(tok, "punctuation", "}")   or
+											isToken(tok, "keyword",     "end") or
+											isToken(tok, "keyword",     "until")
+										then
+											if not depthStack[1] then
+												errorAtToken(fileBuffers, tok, nil, "Macro", "Unexpected '%s'.", tok.value)
+											elseif not isToken(tok, unpack(depthStack[#depthStack])) then
+												local startTok = depthStack[#depthStack].startToken
+												errorAtToken(
+													fileBuffers, tok, nil, "Macro",
+													"Expected '%s' (to end '%s' %s) but got '%s'.",
+													depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value
+												)
+											end
+											table.remove(depthStack)
 										end
+
 										table.insert(argTokens, table.remove(tokenStack))
 									end
 								end
@@ -1837,7 +1879,7 @@ local function processKeywords(tokensRaw, fileBuffers, params, stats)
 								end
 								local argStr = table.concat(parts)
 
-								local chunk, err = loadLuaString("return "..argStr, "@")
+								local chunk, err = loadLuaString("return ("..argStr..")", "@")
 								if not chunk then
 									errorAtToken(fileBuffers, argTokens[1], nil, "Macro", "Syntax error: Invalid expression for argument #%d.", argNum)
 									-- err = err:gsub("^:%d+: ", "")
@@ -2106,7 +2148,7 @@ local function _processFileOrString(params, isFile)
 	end--outputFinalDualValueStatement()
 
 	-- Note: Can be multiple lines if extended.
-	local function processMetaLine(isDual, metaStartFile, metaStartLine)
+	local function processMetaLine(isDual, metaStartTok)
 		local metaLineIndexStart = tokenIndex
 		local bracketBalance     = 0
 
@@ -2115,20 +2157,11 @@ local function _processFileOrString(params, isFile)
 
 			if not tok then
 				if bracketBalance ~= 0 then
-					errorAtToken(
-						fileBuffers, tokens[tokenIndex-1], #fileBuffers[tokens[tokenIndex-1].file], "Parser",
-						"Unexpected end-of-data. Preprocessor line"..(
-							tokens[tokenIndex-1].file == metaStartFile and tokens[tokenIndex-1].line == metaStartLine
-							and ""
-							or  " (starting at %s:%d)"
-						).." has unbalanced brackets.",
-						metaStartFile, metaStartLine
-					)
-
-				elseif isDual then
+					errorAtToken(fileBuffers, metaStartTok, nil, "Parser", "Preprocessor line has unbalanced brackets. (Reached EOF.)")
+				end
+				if isDual then
 					outputFinalDualValueStatement(metaLineIndexStart, tokenIndex-1)
 				end
-
 				return
 			end
 
@@ -2169,28 +2202,20 @@ local function _processFileOrString(params, isFile)
 				return
 
 			elseif tokType == "pp_entry" then
-				errorAtToken(
-					fileBuffers, tok, nil, "Parser",
-					"Preprocessor token inside metaprogram"
-						..(tok.file == metaStartFile and tok.line == metaStartLine and "." or " (starting at %s:%d)."),
-					metaStartFile, metaStartLine
-				)
+				errorAtToken(fileBuffers, tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(metaStartTok, tok))
 
 			else
 				table.insert(metaParts, tok.representation)
 
 				if tokType == "punctuation" and isAny(tok.value, "(","{","[") then
-					bracketBalance = bracketBalance+1
+					bracketBalance = bracketBalance + 1
 				elseif tokType == "punctuation" and isAny(tok.value, ")","}","]") then
-					bracketBalance = bracketBalance-1
-
+					bracketBalance = bracketBalance - 1
 					if bracketBalance < 0 then
 						errorAtToken(
 							fileBuffers, tok, nil, "Parser",
-							"Unexpected '%s'. Preprocessor line"
-								..(tok.file == metaStartFile and tok.line == metaStartLine and "" or " (starting at %s:%d)")
-								.." has unbalanced brackets.",
-							tok.value, metaStartFile, metaStartLine
+							"Unexpected '%s'. Preprocessor line (starting %s) has unbalanced brackets.",
+							tok.value, getRelativeLocationText(metaStartTok, tok)
 						)
 					end
 				end
@@ -2239,16 +2264,7 @@ local function _processFileOrString(params, isFile)
 					if depth == 0 then  break  end
 
 				elseif tokType == "pp_entry" then
-					errorAtToken(
-						fileBuffers, tok, nil, "Parser",
-						"Preprocessor token inside metaprogram"..(
-							tok.file == startToken.file and tok.line == startToken.line
-							and "."
-							or " (starting at %s:%d)."
-						),
-						startToken.file,
-						startToken.line
-					)
+					errorAtToken(fileBuffers, tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(startToken, tok))
 				end
 
 				table.insert(tokensInBlock, tok)
@@ -2293,7 +2309,7 @@ local function _processFileOrString(params, isFile)
 			flushTokensToProcess()
 
 			tokenIndex = tokenIndex+1
-			processMetaLine(tok.double, tok.file, tok.line)
+			processMetaLine(tok.double, tok)
 
 		-- Non-meta.
 		--------------------------------

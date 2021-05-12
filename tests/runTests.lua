@@ -232,6 +232,12 @@ doTest("Preprocessor keywords", function()
 	]]})
 	assertCodeOutput(luaOut, [[t = {}]])
 
+	local luaOut = assert(pp.processString{ code=[[
+		!function echo(v)  return v  end
+		f = @insert echo(function() return a,b end)
+	]]})
+	assertCodeOutput(luaOut, [[f = function() return a,b end]])
+
 	-- Invalid: Ambiguous syntax.
 	local luaOut = pp.processString{ code=[[
 		!function void()  return ""  end
