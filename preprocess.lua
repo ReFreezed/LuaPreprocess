@@ -215,7 +215,7 @@ local getLineNumber
 local getNextUsableToken
 local insertTokenRepresentations
 local isAny
-local isToken
+local isToken, isTokenAndNotNil
 local loadLuaString, loadLuaFile
 local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
@@ -1059,6 +1059,11 @@ function isToken(tok, tokType, v)
 	return tok.type == tokType and (v == nil or tok.value == v)
 end
 
+-- bool = isTokenAndNotNil( token, tokenType [, tokenValue=any ] )
+function isTokenAndNotNil(tok, tokType, v)
+	return tok ~= nil and tok.type == tokType and (v == nil or tok.value == v)
+end
+
 
 
 function getLineNumber(s, pos)
@@ -1546,7 +1551,251 @@ local function getLineCountWithCode(tokens)
 	return lineCount
 end
 
+local function popTokens(tokens, lastIndexToPop)
+	for i = #tokens, lastIndexToPop, -1 do
+		tokens[i] = nil
+	end
+end
+local function popUseless(tokens)
+	for i = #tokens, 1, -1 do
+		if not USELESS_TOKENS[tokens[i].type] then  break  end
+		tokens[i] = nil
+	end
+end
 
+local function isLastToken(tokens, ...)
+	return isTokenAndNotNil(tokens[#tokens], ...)
+end
+
+local function newTokenAt(tok, locationTok)
+	tok.line     = tok.line     or locationTok and locationTok.line
+	tok.lineEnd  = tok.lineEnd  or locationTok and locationTok.lineEnd
+	tok.position = tok.position or locationTok and locationTok.position
+	tok.file     = tok.file     or locationTok and locationTok.file
+	return tok
+end
+
+local function processKeywords(tokensRaw, fileBuffers, params, stats)
+	if not stats.hasPreprocessorCode then
+		return tokensRaw
+	end
+
+	local tokenStack  = {} -- We process the last token first, and we may push new tokens onto the stack.
+	local insertCount = 0
+	local tokens      = {} -- To return.
+
+	for i = #tokensRaw, 1, -1 do
+		table.insert(tokenStack, tokensRaw[i])
+	end
+
+	while tokenStack[1] do
+		local tok = tokenStack[#tokenStack]
+
+		if isToken(tok, "pp_keyword") then
+			local ppKeywordTok = tok
+
+			-- @file
+			-- @line
+			if ppKeywordTok.value == "file" then
+				table.remove(tokenStack) -- "@file"
+				table.insert(tokens, newTokenAt({type="string", value=ppKeywordTok.file, representation=F("%q",ppKeywordTok.file)}, ppKeywordTok))
+			elseif ppKeywordTok.value == "line" then
+				table.remove(tokenStack) -- "@line"
+				table.insert(tokens, newTokenAt({type="number", value=ppKeywordTok.line, representation=F("%d",ppKeywordTok.line)}, ppKeywordTok))
+
+			-- @insert "name"
+			-- @insert identifier( argument1, ... )
+			elseif ppKeywordTok.value == "insert" then
+				local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
+				if not (isTokenAndNotNil(tokNext, "string") or isTokenAndNotNil(tokNext, "identifier")) then
+					errorAtToken(
+						fileBuffers, ppKeywordTok, (tokNext and tokNext.position or ppKeywordTok.position+#ppKeywordTok.representation),
+						"Parser", "Expected a string or identifier after @insert."
+					)
+				end
+
+				popTokens(tokenStack, iNext)
+
+				-- @insert "name"
+				if tokNext.type == "string" then
+					local nameTok      = tokNext
+					local toInsertName = nameTok.value
+					local toInsertLua  = fileBuffers[toInsertName]
+
+					if not toInsertLua then
+						if params.onInsert then
+							toInsertLua = params.onInsert(toInsertName)
+
+							if type(toInsertLua) ~= "string" then
+								errorAtToken(
+									fileBuffers, nameTok, nameTok.position+1,
+									nil, "Expected a string from params.onInsert(). (Got %s)", type(toInsertLua)
+								)
+							end
+
+						else
+							local err
+							toInsertLua, err = getFileContents(toInsertName)
+
+							if not toInsertLua then
+								errorAtToken(
+									fileBuffers, nameTok, nameTok.position+1,
+									"Parser", "Could not read file: %s", tostring(err)
+								)
+							end
+						end
+
+						fileBuffers[toInsertName] = toInsertLua
+						table.insert(stats.insertedNames, toInsertName)
+
+					else
+						insertCount = insertCount+1 -- Note: We don't count insertions of newly encountered files.
+
+						if insertCount > MAX_DUPLICATE_FILE_INSERTS then
+							errorAtToken(
+								fileBuffers, nameTok, nameTok.position+1, "Parser",
+								"Too many duplicate inserts. We may be stuck in a recursive loop."
+									.." (Unique files inserted so far: %s)",
+								table.concat(stats.insertedNames, ", ")
+							)
+						end
+					end
+
+					local toInsertTokens = _tokenize(toInsertLua, toInsertName, true, params.backtickStrings, params.jitSyntax)
+					for i = #toInsertTokens, 1, -1 do
+						table.insert(tokenStack, toInsertTokens[i])
+					end
+
+					local lastTok            = toInsertTokens[#toInsertTokens]
+					stats.processedByteCount = stats.processedByteCount + #toInsertLua
+					stats.lineCount          = stats.lineCount          + (lastTok and lastTok.line + countString(lastTok.representation, "\n", true) or 0)
+					stats.lineCountCode      = stats.lineCountCode      + getLineCountWithCode(toInsertTokens)
+
+				-- @insert identifier( argument1, ... )
+				elseif tokNext.type == "identifier" then
+					local identTok = tokNext
+
+					tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+					if not isTokenAndNotNil(tokNext, "punctuation", "(") then
+						errorAtToken(fileBuffers, identTok, identTok.position+#identTok.representation, "Macro", "Syntax error: Expected '(' after name.")
+					elseif isLastToken(tokenStack, "whitespace") and tokenStack[#tokenStack].value:find"\n" then -- Apply the same 'ambiguous syntax' rule as Lua.
+						errorAtToken(fileBuffers, tokNext, nil, "Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
+					end
+
+					local parensStartTok = tokNext
+					popTokens(tokenStack, iNext) -- "("
+
+					-- Add "!!(ident(".
+					table.insert(tokens, newTokenAt({type="pp_entry",    value="!!", representation="!!", double=true}, ppKeywordTok))
+					table.insert(tokens, newTokenAt({type="punctuation", value="(",  representation="("              }, ppKeywordTok))
+					table.insert(tokens, identTok)
+					table.insert(tokens, parensStartTok)
+
+					tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+					if isTokenAndNotNil(tokNext, "punctuation", ")") then
+						popUseless(tokenStack)
+
+					else
+						local lastArgSeparatorTok = nil
+
+						for argNum = 1, 1/0 do
+							local argStartTok = tokenStack[#tokenStack]
+							local argTokens   = {}
+							local parensDepth = 0
+							popUseless(tokenStack)
+
+							-- Collect tokens for this arg.
+							while true do
+								if not tokenStack[1] then
+									errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
+
+								-- @Copypaste from above. @Cleanup
+								elseif isLastToken(tokenStack, "pp_keyword", "file") then
+									local ppKwTokInner = table.remove(tokenStack) -- "@file"
+									table.insert(argTokens, newTokenAt({type="string", value=ppKwTokInner.file, representation=F("%q",ppKwTokInner.file)}, ppKwTokInner))
+								elseif isLastToken(tokenStack, "pp_keyword", "line") then
+									local ppKwTokInner = table.remove(tokenStack) -- "@line"
+									table.insert(argTokens, newTokenAt({type="number", value=ppKwTokInner.line, representation=F("%d",ppKwTokInner.line)}, ppKwTokInner))
+
+								elseif tokenStack[#tokenStack].type:find"^pp_" then
+									errorAtToken(fileBuffers, tokenStack[#tokenStack], nil, "Macro", "Preprocessor code not supported in macros.")
+
+								elseif parensDepth == 0 and isLastToken(tokenStack, "punctuation", ",") then
+									break
+
+								elseif parensDepth == 0 and isLastToken(tokenStack, "punctuation", ")") then
+									break
+
+								else
+									if isLastToken(tokenStack, "punctuation", "(") then
+										parensDepth = parensDepth + 1
+									elseif isLastToken(tokenStack, "punctuation", ")") then
+										parensDepth = parensDepth - 1
+									end
+									table.insert(argTokens, table.remove(tokenStack))
+								end
+							end
+
+							popUseless(argTokens)
+							if not argTokens[1] then
+								errorAtToken(fileBuffers, argStartTok, nil, "Macro", "Syntax error: Expected argument #%d.", argNum)
+							end
+
+							local parts = {}
+							for i, argTok in ipairs(argTokens) do
+								parts[i] = argTok.representation
+							end
+							local argStr = table.concat(parts)
+
+							local chunk, err = loadLuaString("return "..argStr, "@")
+							if not chunk then
+								errorAtToken(fileBuffers, argTokens[1], nil, "Macro", "Syntax error: Invalid expression for argument #%d.", argNum)
+								-- err = err:gsub("^:%d+: ", "")
+								-- errorAtToken(fileBuffers, argTokens[1], nil, "Macro", "Syntax error: Invalid expression for argument #%d. (%s)", argNum, err)
+							end
+
+							-- Add argument separator.
+							if lastArgSeparatorTok then
+								table.insert(tokens, lastArgSeparatorTok)
+							end
+
+							-- Add argument value.
+							table.insert(tokens, newTokenAt({
+								type           = "string",
+								value          = argStr,
+								representation = F("%q", argStr):gsub("\n", "n"),
+								long           = false,
+							}, argStartTok))
+
+							if isLastToken(tokenStack, "punctuation", ")") then
+								break
+							end
+
+							lastArgSeparatorTok = table.remove(tokenStack) -- ","
+							assert(isToken(lastArgSeparatorTok, "punctuation", ","))
+						end--for argNum
+					end
+
+					-- Add "))".
+					table.insert(tokens, table.remove(tokenStack)) -- ")"
+					table.insert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, ppKeywordTok))
+
+				else
+					assert(false)
+				end
+
+			else
+				errorAtToken(fileBuffers, ppKeywordTok, ppKeywordTok.position+1, "Parser", "Unknown preprocessor keyword '%s'.", ppKeywordTok.value)
+			end
+
+		else
+			table.insert(tokens, tok)
+			table.remove(tokenStack)
+		end
+	end--while tokenStack
+
+	return tokens
+end
 
 local function _processFileOrString(params, isFile)
 	if isFile then
@@ -1590,270 +1839,26 @@ local function _processFileOrString(params, isFile)
 	-- printTokens(tokensRaw)
 
 	-- Info variables.
-	local lastTok             = tokensRaw[#tokensRaw]
+	local lastTok = tokensRaw[#tokensRaw]
 
-	local processedByteCount  = #luaUnprocessed
-	local lineCount           = (specialFirstLine and 1 or 0) + (lastTok and lastTok.line + countString(lastTok.representation, "\n") or 0)
-	local lineCountCode       = getLineCountWithCode(tokensRaw)
-	local tokenCount          = 0 -- Set later.
-	local hasPreprocessorCode = false
-	local insertedNames       = {}
+	local stats = {
+		processedByteCount  = #luaUnprocessed,
+		lineCount           = (specialFirstLine and 1 or 0) + (lastTok and lastTok.line + countString(lastTok.representation, "\n", true) or 0),
+		lineCountCode       = getLineCountWithCode(tokensRaw),
+		tokenCount          = 0, -- Set later.
+		hasPreprocessorCode = false,
+		insertedNames       = {},
+	}
 
 	for _, tok in ipairs(tokensRaw) do
 		if isToken(tok, "pp_entry") or isToken(tok, "pp_keyword") then
-			hasPreprocessorCode = true
+			stats.hasPreprocessorCode = true
 			break
 		end
 	end
 
-	local tokens -- Tokens for constructing the metaprogram.
-
-	-- Do preprocessor keyword stuff.
-	if not hasPreprocessorCode then
-		tokens = tokensRaw
-
-	else
-		local function popTokens(tokens, lastIndexToPop)
-			for i = #tokens, lastIndexToPop, -1 do
-				tokens[i] = nil
-			end
-		end
-		local function popUseless(tokens)
-			for i = #tokens, 1, -1 do
-				if not (isToken(tokens[i], "whitespace") or isToken(tokens[i], "comment")) then
-					break
-				end
-				tokens[i] = nil
-			end
-		end
-		local function isLastToken(tokens, ...)
-			local tok = tokens[#tokens]
-			return tok ~= nil and isToken(tok, ...)
-		end
-		local function _newToken(tok, locationTok)
-			tok.line     = tok.line     or locationTok and locationTok.line
-			tok.lineEnd  = tok.lineEnd  or locationTok and locationTok.lineEnd
-			tok.position = tok.position or locationTok and locationTok.position
-			tok.file     = tok.file     or locationTok and locationTok.file
-			return tok
-		end
-
-		local tokenStack  = {} -- We process the last token first, and we may push new tokens onto the stack.
-		local insertCount = 0
-		tokens            = {}
-
-		for i = #tokensRaw, 1, -1 do
-			table.insert(tokenStack, tokensRaw[i])
-		end
-
-		while tokenStack[1] do
-			local tok = tokenStack[#tokenStack]
-
-			if isToken(tok, "pp_keyword") then
-				local ppKeywordTok = tok
-
-				-- @file
-				-- @line
-				if ppKeywordTok.value == "file" then
-					table.remove(tokenStack) -- "@file"
-					table.insert(tokens, _newToken({type="string", value=ppKeywordTok.file, representation=F("%q",ppKeywordTok.file)}, ppKeywordTok))
-				elseif ppKeywordTok.value == "line" then
-					table.remove(tokenStack) -- "@line"
-					table.insert(tokens, _newToken({type="number", value=ppKeywordTok.line, representation=F("%d",ppKeywordTok.line)}, ppKeywordTok))
-
-				-- @insert "name"
-				-- @insert identifier( argument1, ... )
-				elseif ppKeywordTok.value == "insert" then
-					local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
-					if not (tokNext and (isToken(tokNext, "string") or isToken(tokNext, "identifier"))) then
-						errorAtToken(
-							fileBuffers, ppKeywordTok, (tokNext and tokNext.position or ppKeywordTok.position+#ppKeywordTok.representation),
-							"Parser", "Expected a string or identifier after @insert."
-						)
-					end
-
-					popTokens(tokenStack, iNext)
-
-					-- @insert "name"
-					if tokNext.type == "string" then
-						local nameTok      = tokNext
-						local toInsertName = nameTok.value
-						local toInsertLua  = fileBuffers[toInsertName]
-
-						if not toInsertLua then
-							if params.onInsert then
-								toInsertLua = params.onInsert(toInsertName)
-
-								if type(toInsertLua) ~= "string" then
-									errorAtToken(
-										fileBuffers, nameTok, nameTok.position+1,
-										nil, "Expected a string from params.onInsert(). (Got %s)", type(toInsertLua)
-									)
-								end
-
-							else
-								local err
-								toInsertLua, err = getFileContents(toInsertName)
-
-								if not toInsertLua then
-									errorAtToken(
-										fileBuffers, nameTok, nameTok.position+1,
-										"Parser", "Could not read file: %s", tostring(err)
-									)
-								end
-							end
-
-							fileBuffers[toInsertName] = toInsertLua
-							table.insert(insertedNames, toInsertName)
-
-						else
-							insertCount = insertCount+1 -- Note: We don't count insertions of newly encountered files.
-
-							if insertCount > MAX_DUPLICATE_FILE_INSERTS then
-								errorAtToken(
-									fileBuffers, nameTok, nameTok.position+1, "Parser",
-									"Too many duplicate inserts. We may be stuck in a recursive loop."
-										.." (Unique files inserted so far: %s)",
-									table.concat(insertedNames, ", ")
-								)
-							end
-						end
-
-						local toInsertTokens = _tokenize(toInsertLua, toInsertName, true, params.backtickStrings, params.jitSyntax)
-						for i = #toInsertTokens, 1, -1 do
-							table.insert(tokenStack, toInsertTokens[i])
-						end
-
-						local lastTok       = toInsertTokens[#toInsertTokens]
-						processedByteCount  = processedByteCount + #toInsertLua
-						lineCount           = lineCount          + (lastTok and lastTok.line + countString(lastTok.representation, "\n", true) or 0)
-						lineCountCode       = lineCountCode      + getLineCountWithCode(toInsertTokens)
-
-					-- @insert identifier( argument1, ... )
-					elseif tokNext.type == "identifier" then
-						local identTok = tokNext
-
-						tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
-						if not (tokNext and isToken(tokNext, "punctuation", "(")) then
-							errorAtToken(fileBuffers, identTok, identTok.position+#identTok.representation, "Macro", "Syntax error: Expected '(' after name.")
-						elseif isLastToken(tokenStack, "whitespace") and tokenStack[#tokenStack].value:find"\n" then -- Apply the same 'ambiguous syntax' rule as Lua.
-							errorAtToken(fileBuffers, tokNext, nil, "Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
-						end
-
-						local parensStartTok = tokNext
-						popTokens(tokenStack, iNext) -- "("
-
-						-- Add "!!(ident(".
-						table.insert(tokens, _newToken({type="pp_entry",    value="!!", representation="!!", double=true}, ppKeywordTok))
-						table.insert(tokens, _newToken({type="punctuation", value="(",  representation="("              }, ppKeywordTok))
-						table.insert(tokens, identTok)
-						table.insert(tokens, parensStartTok)
-
-						tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
-						if tokNext and isToken(tokNext, "punctuation", ")") then
-							popUseless(tokenStack)
-
-						else
-							local lastArgSeparatorTok = nil
-
-							for argNum = 1, 1/0 do
-								local argStartTok = tokenStack[#tokenStack]
-								local argTokens   = {}
-								local parensDepth = 0
-								popUseless(tokenStack)
-
-								-- Collect tokens for this arg.
-								while true do
-									if not tokenStack[1] then
-										errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
-
-									-- @Copypaste from above. @Cleanup
-									elseif isLastToken(tokenStack, "pp_keyword", "file") then
-										local ppKwTokInner = table.remove(tokenStack) -- "@file"
-										table.insert(argTokens, _newToken({type="string", value=ppKwTokInner.file, representation=F("%q",ppKwTokInner.file)}, ppKwTokInner))
-									elseif isLastToken(tokenStack, "pp_keyword", "line") then
-										local ppKwTokInner = table.remove(tokenStack) -- "@line"
-										table.insert(argTokens, _newToken({type="number", value=ppKwTokInner.line, representation=F("%d",ppKwTokInner.line)}, ppKwTokInner))
-
-									elseif tokenStack[#tokenStack].type:find"^pp_" then
-										errorAtToken(fileBuffers, tokenStack[#tokenStack], nil, "Macro", "Preprocessor code not supported in macros.")
-
-									elseif parensDepth == 0 and isLastToken(tokenStack, "punctuation", ",") then
-										break
-
-									elseif parensDepth == 0 and isLastToken(tokenStack, "punctuation", ")") then
-										break
-
-									else
-										if isLastToken(tokenStack, "punctuation", "(") then
-											parensDepth = parensDepth + 1
-										elseif isLastToken(tokenStack, "punctuation", ")") then
-											parensDepth = parensDepth - 1
-										end
-										table.insert(argTokens, table.remove(tokenStack))
-									end
-								end
-
-								popUseless(argTokens)
-								if not argTokens[1] then
-									errorAtToken(fileBuffers, argStartTok, nil, "Macro", "Syntax error: Expected argument #%d.", argNum)
-								end
-
-								local parts = {}
-								for i, argTok in ipairs(argTokens) do
-									parts[i] = argTok.representation
-								end
-								local argStr = table.concat(parts)
-
-								local chunk, err = loadLuaString("return "..argStr, "@")
-								if not chunk then
-									errorAtToken(fileBuffers, argTokens[1], nil, "Macro", "Syntax error: Invalid expression for argument #%d.", argNum)
-									-- err = err:gsub("^:%d+: ", "")
-									-- errorAtToken(fileBuffers, argTokens[1], nil, "Macro", "Syntax error: Invalid expression for argument #%d. (%s)", argNum, err)
-								end
-
-								-- Add argument separator.
-								if lastArgSeparatorTok then
-									table.insert(tokens, lastArgSeparatorTok)
-								end
-
-								-- Add argument value.
-								table.insert(tokens, _newToken({
-									type           = "string",
-									value          = argStr,
-									representation = F("%q", argStr):gsub("\n", "n"),
-									long           = false,
-								}, argStartTok))
-
-								if isLastToken(tokenStack, "punctuation", ")") then
-									break
-								end
-
-								lastArgSeparatorTok = table.remove(tokenStack) -- ","
-								assert(isToken(lastArgSeparatorTok, "punctuation", ","))
-							end--for argNum
-						end
-
-						-- Add "))".
-						table.insert(tokens, table.remove(tokenStack)) -- ")"
-						table.insert(tokens, _newToken({type="punctuation", value=")", representation=")"}, ppKeywordTok))
-
-					else
-						assert(false)
-					end
-
-				else
-					errorAtToken(fileBuffers, ppKeywordTok, ppKeywordTok.position+1, "Parser", "Unknown preprocessor keyword '%s'.", ppKeywordTok.value)
-				end
-
-			else
-				table.insert(tokens, tok)
-				table.remove(tokenStack)
-			end
-		end
-	end
-
-	tokenCount = #tokens
+	local tokens     = processKeywords(tokensRaw, fileBuffers, params, stats) -- Tokens for constructing the metaprogram.
+	stats.tokenCount = #tokens
 
 	-- Generate metaprogram.
 	--==============================================================
@@ -2055,7 +2060,7 @@ local function _processFileOrString(params, isFile)
 
 				-- Fix whitespace after the line.
 				local tokNext = tokens[tokenIndex]
-				if isDual or (tokNext and isToken(tokNext, "pp_entry")) then
+				if isDual or isTokenAndNotNil(tokNext, "pp_entry") then
 					-- void
 
 				elseif tokType == "whitespace" then
@@ -2117,7 +2122,7 @@ local function _processFileOrString(params, isFile)
 		-- !( function sum(a, b) return a+b; end )
 		-- local text = !("Hello, mr. "..getName())
 		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
-		if tokType == "pp_entry" and tokens[tokenIndex+1] and isToken(tokens[tokenIndex+1], "punctuation", "(") then
+		if tokType == "pp_entry" and isTokenAndNotNil(tokens[tokenIndex+1], "punctuation", "(") then
 			local startToken  = tok
 			local doOutputLua = startToken.double
 			tokenIndex = tokenIndex+2 -- Jump past "!(" or "!!(".
@@ -2295,12 +2300,12 @@ local function _processFileOrString(params, isFile)
 	local info = {
 		path                = isFile and params.pathIn  or "",
 		outputPath          = isFile and params.pathOut or "",
-		processedByteCount  = processedByteCount,
-		lineCount           = lineCount,
-		linesOfCode         = lineCountCode,
-		tokenCount          = tokenCount,
-		hasPreprocessorCode = hasPreprocessorCode,
-		insertedFiles       = insertedNames,
+		processedByteCount  = stats.processedByteCount,
+		lineCount           = stats.lineCount,
+		linesOfCode         = stats.lineCountCode,
+		tokenCount          = stats.tokenCount,
+		hasPreprocessorCode = stats.hasPreprocessorCode,
+		insertedFiles       = stats.insertedNames,
 	}
 
 	if params.onDone then  params.onDone(info)  end
@@ -2418,7 +2423,7 @@ local pp = {
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
@@ -2443,7 +2448,7 @@ local pp = {
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--

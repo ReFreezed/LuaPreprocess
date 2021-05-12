@@ -1,6 +1,7 @@
 local/
 
 /*.sublime-*
+/.run
 /wiki/
 
 /tests/quickTest.lua
