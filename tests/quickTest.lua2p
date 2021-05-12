@@ -106,6 +106,10 @@ local ok = 1==1
 -- @insert ASSERT ( , ok ) -- Syntax error!
 -- @insert ASSERT ( --[[]] , ok ) -- Syntax error!
 
+!local function PASS_THROUGH(lua)  return lua  end
+local s = @insert PASS_THROUGH "foo"
+local t = @insert PASS_THROUGH { 496, b=true }
+
 
 
 -- Misc.

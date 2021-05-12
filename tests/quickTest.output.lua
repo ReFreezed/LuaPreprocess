@@ -61,11 +61,12 @@ print("Blargh!")
 
 print(string.format('We are at %s:%d!', "misc/quickTest.lua2p", 87))
 
-
-
 local ok = 1==1
 
 if not (ok) then error("Oh "..tonumber("7",10).." noes!") end
+
+local s = "foo"
+local t = { 496, b=true }
 
 
 

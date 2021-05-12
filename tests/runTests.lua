@@ -214,7 +214,31 @@ doTest("Preprocessor keywords", function()
 	})
 	assertCodeOutput(luaOut, [[v = "bar"]])
 
-	-- @Incomplete: Test macros: @insert foo()
+	local luaOut = assert(pp.processString{ code=[[
+		!function join(ident1, ident2)  return ident1..ident2  end
+		v = @insert join(foo, bar)
+	]]})
+	assertCodeOutput(luaOut, [[v = foobar]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!function echo(v)  return v  end
+		s = @insert echo""
+	]]})
+	assertCodeOutput(luaOut, [[s = ""]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!function echo(v)  return v  end
+		t = @insert echo{}
+	]]})
+	assertCodeOutput(luaOut, [[t = {}]])
+
+	-- Invalid: Ambiguous syntax.
+	local luaOut = pp.processString{ code=[[
+		!function void()  return ""  end
+		v = @insert void
+		()
+	]]}
+	assert(not luaOut)
 end)
 
 
