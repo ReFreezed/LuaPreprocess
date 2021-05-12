@@ -231,10 +231,10 @@ function tryToFormatError(err0)
 	local err, path, ln = nil
 
 	if type(err0) == "string" then
-		path, ln, err = err0:match'^(.-):(%d+): (.*)'
-		if not err then
-			path, ln, err = err0:match'^([%w_/.]+):(%d+): (.*)'
-		end
+		do               path, ln, err = err0:match'^(%a:[%w_/\\.]+):(%d+): (.*)'
+		if not err then  path, ln, err = err0:match'^([%w_/\\.]+):(%d+): (.*)'
+		if not err then  path, ln, err = err0:match'^(.-):(%d+): (.*)'
+		end end end
 	end
 
 	if err then
@@ -1073,9 +1073,9 @@ do
 		table.insert(errorHandlers, errHand)
 		currentErrorHandler = errHand
 	end
-	function pushErrorHandlerIfOverridingDefault(errHand)
-		pushErrorHandler(currentErrorHandler == _error and errHand or currentErrorHandler)
-	end
+	-- function pushErrorHandlerIfOverridingDefault(errHand) -- Unused.
+	-- 	pushErrorHandler(currentErrorHandler == _error and errHand or currentErrorHandler)
+	-- end
 	function popErrorHandler()
 		table.remove(errorHandlers)
 		if not errorHandlers[1] then
@@ -1552,8 +1552,11 @@ local function _processFileOrString(params, isFile)
 	if isFile then
 		if not params.pathIn  then  error("Missing 'pathIn' in params.",  2)  end
 		if not params.pathOut then  error("Missing 'pathOut' in params.", 2)  end
+
+		if params.pathOut == params.pathIn then  error("'pathIn' and 'pathOut' are the same in params.", 2)  end
+
 	else
-		if not params.code    then  error("Missing 'code' in params.",    2)  end
+		if not params.code then  error("Missing 'code' in params.", 2)  end
 	end
 
 	local luaUnprocessed, pathIn
@@ -2328,6 +2331,8 @@ local function processFileOrString(params, isFile)
 		if params.onError then  params.onError(errorToReturn)  end
 
 		if levelFromOurError then  _error(ERROR_REDIRECTION)  end
+
+		return err -- Not sure when this return matters. I have a feeling it's never. 2021-05-12
 	end
 
 	isDebug = params.debug
@@ -2353,7 +2358,8 @@ local function processFileOrString(params, isFile)
 
 	-- Unhandled error.
 	if not (returnValues or errorToReturn) then
-		pcall(errHand, (not xpcallOk and xpcallErr or "Unknown processing error."))
+		errorToReturn = (not xpcallOk and xpcallErr or "Unknown processing error.")
+		pcall(errHand, errorToReturn)
 	end
 
 	-- Handled error.
