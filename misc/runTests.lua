@@ -213,6 +213,8 @@ doTest("Preprocessor keywords", function()
 		end,
 	})
 	assertCodeOutput(luaOut, [[v = "bar"]])
+
+	-- @Incomplete: Test macros: @insert foo()
 end)
 
 

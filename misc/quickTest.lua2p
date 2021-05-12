@@ -22,6 +22,8 @@ a = a..!(b)..a -- Comment, string concat.
 !local bool = --[[ Just a multiline
 comment here...]] true
 
+
+
 !(
 -- Preprocessor block.
 local function sum(x, y)
@@ -33,6 +35,8 @@ local c   = !(100+sum(10, 5))
 local str = !(run("misc/quickTestInclude.lua", "what"))
 
 _G.!!("global"..math.random(5)) = 99
+
+
 
 -- Extended preprocessor line. (Balanced brackets.)
 !local arr = {
@@ -46,6 +50,8 @@ local z = !(z)
 
 !local justTheLetterD = "d"
 
+
+
 -- Dual code. (Outputs both both preprocessor code and normal Lua. Can only be used for assignment statements.)
 !!local alpha    = "[%a_]"
 !!local alphanum = "[%a%d_]"
@@ -58,6 +64,8 @@ print(s:match(ident))    -- "hello5"
 print(s:match(num))      -- "2"
 print(s:match(funcCall)) -- "hello5( foo )"
 
+
+
 -- File inserts.
 !(
 @insert "misc/quickTest.luapart"
@@ -65,6 +73,40 @@ print("Metaprogram - someString: "..someString)
 )
 local uhh = !(@insert"misc/quickTest.txt")
 print("Final program - uhh: "..uhh)
+
+
+
+-- Macros.
+!local function BLARGH()  return 'print("Blargh!")'  end
+@insert BLARGH()
+-- !@insert BLARGH() -- Error: Preprocessor token inside metaprogram.
+-- @insert BLARGH( @insert BLARGH() ) -- Error: Preprocessor code not supported in macros.
+-- @insert BLARGH(function() return 1,2 end) -- Syntax error! Caused by the comma in the return statement. (This would work if the preprocessor was smarter.)
+
+!local function WHERE(filename, ln)  return "print(string.format('We are at %s:%d!', "..filename..", "..ln.."))"  end
+@insert WHERE(@file, @line)
+
+!(
+local DEBUG = 1==1
+
+local function ASSERT(cond, message)
+	if not DEBUG then  return ""  end
+
+	message = message or "'Asertion failed!'"
+
+	return "if not ("..cond..") then error("..message..") end"
+end
+)
+
+local ok = 1==1
+
+@insert ASSERT ( ok , "Oh "..tonumber("7",10).." noes!" )
+-- @insert ASSERT ( 1 1 ) -- Syntax error!
+-- @insert ASSERT ( ok , ) -- Syntax error!
+-- @insert ASSERT ( , ok ) -- Syntax error!
+-- @insert ASSERT ( --[[]] , ok ) -- Syntax error!
+
+
 
 -- Misc.
 print(!("dataFromCommandLine: "..tostring(dataFromCommandLine)))
@@ -82,6 +124,8 @@ local HUGE_NEGATIVE = !(-math.huge)
 local NAN           = !(0/0)
 
 print("The end.")
+
+
 
 !(
 --[==[ Test token stuff.
@@ -144,3 +188,5 @@ for _, token in ipairs{
 end
 --]==]
 )
+
+
