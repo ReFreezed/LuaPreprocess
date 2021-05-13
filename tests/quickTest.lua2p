@@ -22,6 +22,12 @@ a = a..!(b)..a -- Comment, string concat.
 !local bool = --[[ Just a multiline
 comment here...]] true
 
+!local function wrapped(concept)
+	print!("Get wrapped! Also, "..concept.."...")
+!end
+!wrapped("dogs")
+!wrapped("clouds")
+
 
 
 !(
@@ -108,7 +114,7 @@ local ok = 1==1
 
 !local function PASS_THROUGH(lua)  return lua  end
 local s = @insert PASS_THROUGH "foo"
-local t = @insert PASS_THROUGH { 496, b=true }
+local t = @@      PASS_THROUGH { 496, b=true } -- @@func() means the same as @insert func().
 
 local f = @insert PASS_THROUGH(function(a, b)
 	while true do

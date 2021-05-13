@@ -66,9 +66,18 @@ local ok = 1==1
 if not (ok) then error("Oh "..tonumber("7",10).." noes!") end
 
 local s = "foo"
-local t = { 496, b=true }
+local t = { 496, b=true } -- @@func() means the same as @insert func().
+
+local f = function(a, b)
+	while true do
+		repeat until arePlanetsAligned("mars", "jupiter")
+		break
+	end
+	return "", nil
+end
 
 
 
+-- Misc.
 print("dataFromCommandLine: Hello, world!")
 print("The end.")

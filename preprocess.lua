@@ -5,6 +5,7 @@
 --=
 --=  License: MIT (see the bottom of this file)
 --=  Website: https://github.com/ReFreezed/LuaPreprocess
+--=  Documentation: https://github.com/ReFreezed/LuaPreprocess/wiki
 --=
 --=  Tested with Lua 5.1, 5.2, 5.3 and 5.4.
 --=
@@ -37,8 +38,8 @@
 
 	How to metaprogram:
 
-	The exclamation mark (!) is used to indicate what code is part
-	of the metaprogram. There are 4 ways to write metaprogram code:
+	The exclamation mark (!) is used to indicate what code is part of
+	the metaprogram. There are 4 main ways to write metaprogram code:
 
 	!...     The line will simply run during preprocessing. The line can span multiple actual lines if it contains brackets.
 	!!...    The line will appear in both the metaprogram and the final program. The line must be an assignment.
@@ -79,10 +80,10 @@
 
 	-- Extended preprocessor line. (Lines are consumed until brackets
 	-- are balanced when the end of the line has been reached.)
-	!newClass{
+	!newClass{ -- Starts here.
 		name  = "Entity",
 		props = {x=0, y=0},
-	}
+	} -- Ends here.
 
 	-- Preprocessor block.
 	!(
@@ -100,27 +101,22 @@
 
 	-- Dual code (both preprocessor line and final output).
 	!!local partial = "Hello"
-	local   whole   = partial..!(partial..", world!")
+	local   whole   = partial .. !(partial..", world!")
 	print(whole) -- HelloHello, world!
 
 	-- Beware in preprocessor blocks that only call a single function!
-	!(func())  -- This will bee seen as an inline block and output whatever value func() returns as a literal.
-	!(func();) -- If that's not wanted then a trailing ";" will prevent that. This line won't output anything by itself.
-	-- When the full metaprogram is generated, "!(func())" translates into "outputValue(func())"
-	-- while "!(func();)" simply translates into "func();" (because "outputValue(func();)" would be invalid Lua code).
-	-- Though in this specific case a preprocessor line would be nicer:
+	!( func()  ) -- This will bee seen as an inline block and output whatever value func() returns as a literal.
+	!( func(); ) -- If that's not wanted then a trailing `;` will prevent that. This line won't output anything by itself.
+	-- When the full metaprogram is generated, `!(func())` translates into `outputValue(func())`
+	-- while `!(func();)` simply translates into `func();` (because `outputValue(func();)` would be invalid Lua code).
+	-- Though in this specific case a preprocessor line (without the parenthesis) would be nicer:
 	!func()
+
+	-- For the full documentation, see: https://github.com/ReFreezed/LuaPreprocess/wiki
 
 --============================================================]]
 
 
-
---[[ Make sure the library doesn't add globals.
-setmetatable(_G, {__newindex=function(_G, k, v)
-	print(debug.traceback("WARNING: Setting global '"..tostring(k).."'.", 2))
-	rawset(_G, k, v)
-end})
---]]
 
 local PP_VERSION = "1.12.0"
 
@@ -206,7 +202,7 @@ local _tokenize
 local assertarg
 local copyTable
 local countString, countSubString
-local error, errorline, errorOnLine, errorInFile, errorAtToken
+local error, errorLine, errorOnLine, errorInFile, errorAtToken
 local errorIfNotRunningMeta
 local escapePattern
 local F, tryToFormatError
@@ -232,9 +228,9 @@ function tryToFormatError(err0)
 	local err, path, ln = nil
 
 	if type(err0) == "string" then
-		do               path, ln, err = err0:match'^(%a:[%w_/\\.]+):(%d+): (.*)'
-		if not err then  path, ln, err = err0:match'^([%w_/\\.]+):(%d+): (.*)'
-		if not err then  path, ln, err = err0:match'^(.-):(%d+): (.*)'
+		do               path, ln, err = err0:match"^(%a:[%w_/\\.]+):(%d+): (.*)"
+		if not err then  path, ln, err = err0:match"^([%w_/\\.]+):(%d+): (.*)"
+		if not err then  path, ln, err = err0:match"^(.-):(%d+): (.*)"
 		end end end
 	end
 
@@ -296,7 +292,7 @@ function error(err, level)
 	currentErrorHandler(err, level)
 end
 
-function errorline(err)
+function errorLine(err)
 	print(tryToFormatError(err))
 	currentErrorHandler(err, 2)
 end
@@ -674,9 +670,14 @@ function _tokenize(s, path, allowMetaTokens, allowBacktickStrings, allowJitSynta
 
 		-- Preprocessor: Keyword.
 		elseif allowMetaTokens and s:find("^@", ptr) then
-			local i1, i2, repr, word = s:find("^(@([%a_][%w_]*))", ptr)
-			ptr = i2+1
-			tok = {type="pp_keyword", representation=repr, value=word}
+			if s:find("^@@", ptr) then
+				ptr = ptr+2
+				tok = {type="pp_keyword", representation="@@", value="insert"}
+			else
+				local i1, i2, repr, word = s:find("^(@([%a_][%w_]*))", ptr)
+				ptr = i2+1
+				tok = {type="pp_keyword", representation=repr, value=word}
+			end
 
 		else
 			return nil, errorInFile(s, path, ptr, "Tokenizer", "Unknown character.")
@@ -1179,7 +1180,7 @@ function metaFuncs.run(path, ...)
 	assertarg(1, path, "string")
 
 	local mainChunk, err = loadLuaFile(path, metaEnv)
-	if not mainChunk then  errorline(err)  end
+	if not mainChunk then  errorLine(err)  end
 
 	-- We want multiple return values while avoiding a tail call to preserve stack info.
 	local returnValues = pack(mainChunk(...))
@@ -1627,7 +1628,7 @@ local function processKeywords(tokensRaw, fileBuffers, params, stats)
 				if not (isTokenAndNotNil(tokNext, "string") or isTokenAndNotNil(tokNext, "identifier")) then
 					errorAtToken(
 						fileBuffers, ppKeywordTok, (tokNext and tokNext.position or ppKeywordTok.position+#ppKeywordTok.representation),
-						"Parser", "Expected a string or identifier after @insert."
+						"Parser", "Expected a string or identifier after %s.", ppKeywordTok.representation
 					)
 				end
 
@@ -1950,7 +1951,7 @@ local function _processFileOrString(params, isFile)
 		luaUnprocessed, err = getFileContents(pathIn)
 
 		if not luaUnprocessed then
-			errorline("Could not read file: "..err)
+			errorLine("Could not read file: "..err)
 		end
 
 		currentPathIn  = params.pathIn
@@ -2376,7 +2377,7 @@ local function _processFileOrString(params, isFile)
 		if type(luaModified) == "string" then
 			lua = luaModified
 		elseif luaModified ~= nil then
-			errorline("onAfterMeta() did not return a string. (Got "..type(luaModified)..")")
+			errorLine("onAfterMeta() did not return a string. (Got "..type(luaModified)..")")
 		end
 	end
 
