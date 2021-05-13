@@ -106,7 +106,7 @@ exec lua "$0" "$@"
 			outputPaths: If the --outputpaths option is present this is an array of output paths for the respective path in inputPaths, otherwise it's nil.
 
 	"insert"
-		Sent for each @insert statement. The handler is expected to return a Lua string.
+		Sent for each @insert"name" statement. The handler is expected to return a Lua code string.
 		Arguments:
 			path: The file being processed.
 			name: The name of the resource to be inserted (could be a file path or anything).
@@ -460,12 +460,12 @@ for i, pathIn in ipairs(pathsIn) do
 		onInsert = (hasMessageHandler("insert") or nil) and function(name)
 			local lua = sendMessage("insert", pathIn, name)
 
-			-- onInsert() is expected to return a Lua string and so is the message handler.
-			-- However, if the handler is a single catch-all function we allow the message
-			-- to not be handled and we fall back to the default behavior of treating 'name'
-			-- as a path to a file to be inserted. If we didn't allow this then it would be
-			-- required for the "insert" message to be handled. I think it's better if the
-			-- user can choose whether to handle a message or not!
+			-- onInsert() is expected to return a Lua code string and so is the message
+			-- handler. However, if the handler is a single catch-all function we allow
+			-- the message to not be handled and we fall back to the default behavior of
+			-- treating 'name' as a path to a file to be inserted. If we didn't allow this
+			-- then it would be required for the "insert" message to be handled. I think
+			-- it's better if the user can choose whether to handle a message or not!
 			--
 			if lua == nil and type(messageHandler) == "function" then
 				return assert(pp.getFileContents(name))

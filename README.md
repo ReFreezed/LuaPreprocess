@@ -70,7 +70,7 @@ end
 -- Preprocessor inline block. (Expression that returns a value.)
 local text = !("Precalculated hash: "..getHash())
 
--- Preprocessor inline block variant. (Expression that returns a Lua string.)
+-- Preprocessor inline block variant. (Expression that returns a Lua code string.)
 !!("myRandomGlobal"..math.random(9)) = "foo"
 ```
 
@@ -101,7 +101,7 @@ function newEntity() return {__name="Entity",x=0,y=0} end
 -- Preprocessor inline block. (Expression that returns a value.)
 local text = "Precalculated hash: 6CD3556DEB0DA54BCA060B4C39479839"
 
--- Preprocessor inline block variant. (Expression that returns a Lua string.)
+-- Preprocessor inline block variant. (Expression that returns a Lua code string.)
 myRandomGlobal4 = "foo"
 ```
 

@@ -96,7 +96,7 @@
 	-- Preprocessor inline block. (Expression that returns a value.)
 	local text = !("The dog said: "..getDogText())
 
-	-- Preprocessor inline block variant. (Expression that returns a Lua string.)
+	-- Preprocessor inline block variant. (Expression that returns a Lua code string.)
 	_G.!!("myRandomGlobal"..math.random(5)) = 99
 
 	-- Dual code (both preprocessor line and final output).
@@ -420,7 +420,9 @@ local NUM_DEC_FRAC     = ("^(        %d*          %.%d+                         
 local NUM_DEC_EXP      = ("^(        %d+          %.?             [Ee][-+]?%d+           )"):gsub(" +", "")
 local NUM_DEC          = ("^(        %d+          %.?                                    )"):gsub(" +", "")
 
-function _tokenize(s, path, allowMetaTokens, allowBacktickStrings, allowJitSyntax)
+-- tokens = _tokenize( luaString, path, allowPreprocessorTokens, allowBacktickStrings, allowJitSyntax )
+-- Returns nil and a message on error.
+function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 	local tokens = {}
 	local ptr    = 1
 	local ln     = 1
@@ -636,13 +638,15 @@ function _tokenize(s, path, allowMetaTokens, allowBacktickStrings, allowJitSynta
 			tok.value = v
 
 		-- Backtick string.
-		elseif allowBacktickStrings and s:find("^`", ptr) then
-			local i1, i2, v = s:find("^`([^`]*)`", ptr)
+		elseif s:find("^`", ptr) then
+			if not allowBacktickStrings then
+				return nil, errorInFile(s, path, ptr, "Tokenizer", "Encountered backtick string. (Feature not enabled.)")
+			end
+
+			local i1, i2, repr, v = s:find("^(`([^`]*)`)", ptr)
 			if not i2 then
 				return nil, errorInFile(s, path, ptr, "Tokenizer", "Unfinished backtick string.")
 			end
-
-			local repr = F("%q", v)
 
 			ptr = i2+1
 			tok = {type="string", representation=repr, value=v, long=false}
@@ -661,15 +665,24 @@ function _tokenize(s, path, allowMetaTokens, allowBacktickStrings, allowJitSynta
 			tok = {type="punctuation", representation=repr, value=repr}
 			ptr = ptr+#repr
 
-		-- Preprocessor: Entry.
-		elseif allowMetaTokens and s:find("^!", ptr) then
+		-- Preprocessor entry.
+		elseif s:find("^!", ptr) then
+			if not allowPpTokens then
+				return nil, errorInFile(s, path, ptr, "Tokenizer", "Encountered preprocessor entry. (Feature not enabled.)")
+			end
+
 			local double = s:find("^!", ptr+1) ~= nil
 			local repr   = s:sub(ptr, ptr+(double and 1 or 0))
+
 			tok = {type="pp_entry", representation=repr, value=repr, double=double}
 			ptr = ptr+#repr
 
-		-- Preprocessor: Keyword.
-		elseif allowMetaTokens and s:find("^@", ptr) then
+		-- Preprocessor keyword.
+		elseif s:find("^@", ptr) then
+			if not allowPpTokens then
+				return nil, errorInFile(s, path, ptr, "Tokenizer", "Encountered preprocessor keyword. (Feature not enabled.)")
+			end
+
 			if s:find("^@@", ptr) then
 				ptr = ptr+2
 				tok = {type="pp_keyword", representation="@@", value="insert"}
@@ -1282,15 +1295,15 @@ end
 
 -- tokenize()
 --   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
---   tokens, error = tokenize( luaString [, allowPreprocessorTokens=false ] )
+--   tokens, error = tokenize( luaString [, allowPreprocessorCode=false ] )
 --   token = {
 --     type=tokenType, representation=representation, value=value,
 --     line=lineNumber, lineEnd=lineNumber, position=bytePosition, file=filePath,
 --     ...
 --   }
-function metaFuncs.tokenize(lua, allowMetaTokens)
+function metaFuncs.tokenize(lua, allowPpCode)
 	pushErrorHandler(NOOP)
-	local tokens, err = _tokenize(lua, "<string>", allowMetaTokens, allowMetaTokens, true) -- @Incomplete: Make allowJitSyntax a parameter to tokenize()?
+	local tokens, err = _tokenize(lua, "<string>", allowPpCode, allowPpCode, true) -- @Incomplete: Make allowJitSyntax a parameter to tokenize()?
 	popErrorHandler()
 	return tokens, err
 end
@@ -1591,7 +1604,7 @@ local function newTokenAt(tok, locationTok)
 	return tok
 end
 
-local function processKeywords(tokensRaw, fileBuffers, params, stats)
+local function doExpansions(tokensRaw, fileBuffers, params, stats)
 	if not stats.hasPreprocessorCode then
 		return tokensRaw
 	end
@@ -1607,6 +1620,7 @@ local function processKeywords(tokensRaw, fileBuffers, params, stats)
 	while tokenStack[1] do
 		local tok = tokenStack[#tokenStack]
 
+		-- Keyword.
 		if isToken(tok, "pp_keyword") then
 			local ppKeywordTok = tok
 
@@ -1922,6 +1936,14 @@ local function processKeywords(tokensRaw, fileBuffers, params, stats)
 				errorAtToken(fileBuffers, ppKeywordTok, ppKeywordTok.position+1, "Parser", "Unknown preprocessor keyword '%s'.", ppKeywordTok.value)
 			end
 
+		-- Backtick string.
+		elseif isToken(tok, "string") and tok.representation:find"^`" then
+			tok.representation = F("%q", tok.value)
+
+			table.insert(tokens, tok)
+			table.remove(tokenStack)
+
+		-- Anything else.
 		else
 			table.insert(tokens, tok)
 			table.remove(tokenStack)
@@ -1981,17 +2003,22 @@ local function _processFileOrString(params, isFile)
 		lineCountCode       = getLineCountWithCode(tokensRaw),
 		tokenCount          = 0, -- Set later.
 		hasPreprocessorCode = false,
+		hasMetaprogram      = false,
 		insertedNames       = {},
 	}
 
 	for _, tok in ipairs(tokensRaw) do
-		if isToken(tok, "pp_entry") or isToken(tok, "pp_keyword") then
+		if isToken(tok, "pp_entry") or isToken(tok, "pp_keyword", "insert") then
 			stats.hasPreprocessorCode = true
+			stats.hasMetaprogram      = true
 			break
+		elseif isToken(tok, "pp_keyword") or (isToken(tok, "string") and tok.representation:find"^`") then
+			stats.hasPreprocessorCode = true
+			-- Keep going as there may be metaprogram.
 		end
 	end
 
-	local tokens     = processKeywords(tokensRaw, fileBuffers, params, stats) -- Tokens for constructing the metaprogram.
+	local tokens     = doExpansions(tokensRaw, fileBuffers, params, stats) -- Tokens for constructing the metaprogram.
 	stats.tokenCount = #tokens
 
 	-- Generate metaprogram.
@@ -2413,6 +2440,7 @@ local function _processFileOrString(params, isFile)
 		linesOfCode         = stats.lineCountCode,
 		tokenCount          = stats.tokenCount,
 		hasPreprocessorCode = stats.hasPreprocessorCode,
+		hasMetaprogram      = stats.hasMetaprogram,
 		insertedFiles       = stats.insertedNames,
 	}
 
@@ -2531,7 +2559,7 @@ local pp = {
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
@@ -2556,7 +2584,7 @@ local pp = {
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua string. By default 'name' is a path to a file to be inserted.
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--
