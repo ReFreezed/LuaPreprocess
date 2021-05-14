@@ -218,7 +218,7 @@ function printfError(s, ...)
 end
 
 function errorLine(err)
-	printError("Error: "..tostring(err))
+	printError(tryToFormatError(err))
 	os.exit(1)
 end
 
@@ -509,7 +509,7 @@ for i, pathIn in ipairs(pathsIn) do
 			xpcall(function()
 				sendMessage("fileerror", pathIn, err)
 			end, function(err)
-				io.stderr:write("Additional error in 'fileerror' message handler...\n", pp.tryToFormatError(tostring(err)), "\n")
+				printfError("Additional error in 'fileerror' message handler...\n%s", pp.tryToFormatError(err))
 			end)
 			os.exit(1)
 		end,

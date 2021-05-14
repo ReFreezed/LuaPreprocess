@@ -11,6 +11,6 @@ local info, err = pp.processFile{
 }
 
 if not info then
-	print("Processing failed!")
+	print("Oh no! Processing failed!")
 	os.exit(1)
 end

@@ -134,7 +134,7 @@ for i = 1, 3 do
 	do
 		!outputLua("break")
 	end
-	!outputLua("break") -- Just a comment.
+	!outputLua("break") -- Hello, I'm just a comment.
 end
 
 local HUGE_POSITIVE = !(math.huge)
