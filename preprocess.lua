@@ -118,7 +118,7 @@
 
 
 
-local PP_VERSION = "1.12.0"
+local PP_VERSION = "1.13.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -163,7 +163,7 @@ local ERROR_UNFINISHED_VALUE = 1
 
 local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
 if not major then
-	print("[LuaPreprocess] Warning: Could not detect Lua version.")
+	io.stderr:write("[LuaPreprocess] Warning: Could not detect Lua version.\n")
 else
 	major = tonumber(major)
 	minor = tonumber(minor)
