@@ -216,7 +216,7 @@ local isToken, isTokenAndNotNil
 local loadLuaString, loadLuaFile
 local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
-local printf, printTokens, printTraceback
+local printf, printTokens, printError, printfError, printErrorTraceback
 local pushErrorHandler, pushErrorHandlerIfOverridingDefault, popErrorHandler
 local serialize, toLua
 
@@ -256,18 +256,25 @@ function printTokens(tokens, filter)
 	end
 end
 
-function printTraceback(message, level)
-	print(message)
-	print("stack traceback:")
+function printError(s)
+	io.stderr:write(s, "\n")
+end
+function printfError(s, ...)
+	io.stderr:write(s:format(...), "\n")
+end
+
+function printErrorTraceback(message, level)
+	printError(message)
+	printError("stack traceback:")
 
 	for level = 1+(level or 1), 1/0 do
 		local info = debug.getinfo(level, "nSl")
 		if not info then  break  end
 
-		-- print(level, "source   ", info.source)
-		-- print(level, "short_src", info.short_src)
-		-- print(level, "name     ", info.name)
-		-- print(level, "what     ", info.what)
+		-- printError(level, "source   ", info.source)
+		-- printError(level, "short_src", info.short_src)
+		-- printError(level, "name     ", info.name)
+		-- printError(level, "what     ", info.what)
 
 		local where = info.source:match"^@(.+)" or info.short_src
 		local lnStr = info.currentline > 0 and ":"..info.currentline or ""
@@ -279,7 +286,7 @@ function printTraceback(message, level)
 			or info.what == "tail" and "tail call"
 			or "?"
 
-		print("\t"..where..lnStr.."  ("..name..")")
+		printError("\t"..where..lnStr.."  ("..name..")")
 	end
 end
 
@@ -288,21 +295,21 @@ end
 function error(err, level)
 	-- @Check: Should we prepend the path? And, in all or just some cases?
 	level = 1+(level or 1)
-	printTraceback(tryToFormatError(err), level)
+	printErrorTraceback(tryToFormatError(err), level)
 	currentErrorHandler(err, level)
 end
 
 function errorLine(err)
-	print(tryToFormatError(err))
+	printError(tryToFormatError(err))
 	currentErrorHandler(err, 2)
 end
 
 function errorOnLine(path, ln, agent, s, ...)
 	s = s:format(...)
 	if agent then
-		printf("Error @ %s:%d: [%s] %s\n", path, ln, agent, s)
+		printfError("Error @ %s:%d: [%s] %s\n", path, ln, agent, s)
 	else
-		printf("Error @ %s:%d: %s\n",      path, ln,        s)
+		printfError("Error @ %s:%d: %s\n",      path, ln,        s)
 	end
 	currentErrorHandler(s, 2)
 	return s
@@ -336,7 +343,7 @@ do
 		local linePre1End   = findEndOfLine(contents, linePre1Start-1)
 		local linePre2Start = findStartOfLine(contents, linePre1Start-1, false)
 		local linePre2End   = findEndOfLine(contents, linePre2Start-1)
-		-- printf("pos %d | lines %d..%d, %d..%d, %d..%d", pos, linePre2Start,linePre2End+1, linePre1Start,linePre1End+1, lineStart,lineEnd+1) -- DEBUG
+		-- printfError("pos %d | lines %d..%d, %d..%d, %d..%d", pos, linePre2Start,linePre2End+1, linePre1Start,linePre1End+1, lineStart,lineEnd+1) -- DEBUG
 
 		local contextStr = F(">\n%s%s%s>-%s^",
 			(linePre2Start < linePre1Start and linePre2Start <= linePre2End) and F("> %s\n", (contents:sub(linePre2Start, linePre2End):gsub("\t", "    "))) or "",
@@ -346,8 +353,8 @@ do
 			nil
 		)
 
-		if agent then  printf("Error @ %s:%d: [%s] %s\n%s", path, ln, agent, s, contextStr)
-		else           printf("Error @ %s:%d: %s",          path, ln,        s, contextStr)
+		if agent then  printfError("Error @ %s:%d: [%s] %s\n%s", path, ln, agent, s, contextStr)
+		else           printfError("Error @ %s:%d: %s",          path, ln,        s, contextStr)
 		end
 
 		currentErrorHandler(s, 2)
@@ -904,7 +911,8 @@ end
 
 
 
--- luaString, error = toLua( value )
+-- luaString = toLua( value )
+-- Returns nil and a message on error.
 function toLua(v)
 	local buffer = {}
 
@@ -1140,7 +1148,7 @@ metaFuncs.printf = printf
 
 -- getFileContents()
 --   Get the entire contents of a binary file or text file. Returns nil and a message on error.
---   contents, error = getFileContents( path [, isTextFile=false ] )
+--   contents = getFileContents( path [, isTextFile=false ] )
 metaFuncs.getFileContents = getFileContents
 
 -- fileExists()
@@ -1150,8 +1158,8 @@ metaFuncs.fileExists = fileExists
 
 -- toLua()
 --   Convert a value to a Lua literal. Does not work with certain types, like functions or userdata.
---   Returns nil and a message if an error ocurred.
---   luaString, error = toLua( value )
+--   Returns nil and a message on error.
+--   luaString = toLua( value )
 metaFuncs.toLua = toLua
 
 -- serialize()
@@ -1295,7 +1303,7 @@ end
 
 -- tokenize()
 --   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
---   tokens, error = tokenize( luaString [, allowPreprocessorCode=false ] )
+--   tokens = tokenize( luaString [, allowPreprocessorCode=false ] )
 --   token = {
 --     type=tokenType, representation=representation, value=value,
 --     line=lineNumber, lineEnd=lineNumber, position=bytePosition, file=filePath,
@@ -1556,6 +1564,9 @@ end
 function metaFuncs.concatTokens(tokens)
 	return _concatTokens(tokens)
 end
+
+-- Extra stuff used by the command line program:
+metaFuncs.tryToFormatError = tryToFormatError
 
 
 
@@ -1872,7 +1883,7 @@ local function doExpansions(tokensRaw, fileBuffers, params, stats)
 												local startTok = depthStack[#depthStack].startToken
 												errorAtToken(
 													fileBuffers, tok, nil, "Macro",
-													"Expected '%s' (to end '%s' %s) but got '%s'.",
+													"Expected '%s' (to close '%s' %s) but got '%s'.",
 													depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value
 												)
 											end
@@ -2473,7 +2484,7 @@ local function processFileOrString(params, isFile)
 		errorToReturn = err
 
 		if not levelFromOurError then
-			printTraceback(tryToFormatError(err), 2)
+			printErrorTraceback(tryToFormatError(err), 2)
 		end
 
 		if params.onError then  params.onError(errorToReturn)  end

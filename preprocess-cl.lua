@@ -144,7 +144,7 @@ local args = arg
 
 local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
 if not major then
-	print("[LuaPreprocess] Warning: Could not detect Lua version.") -- Note: This line does not obey the --silent option.
+	io.stderr:write("[LuaPreprocess] Warning: Could not detect Lua version.\n") -- Note: This line does not obey the --silent option.
 else
 	major = tonumber(major)
 	minor = tonumber(minor)
@@ -177,10 +177,10 @@ local validate             = true
 --==============================================================
 --= Local Functions ============================================
 --==============================================================
-local errorline
+local errorLine
 local F, formatBytes, formatInt
 local loadLuaFile
-local printf, printfNoise
+local printf, printfNoise, printError, printfError
 
 F = string.format
 function formatBytes(n)
@@ -210,8 +210,15 @@ function printf(s, ...)
 end
 printfNoise = printf
 
-function errorline(err)
-	print("Error: "..tostring(err))
+function printError(s)
+	io.stderr:write(s, "\n")
+end
+function printfError(s, ...)
+	io.stderr:write(s:format(...), "\n")
+end
+
+function errorLine(err)
+	printError("Error: "..tostring(err))
 	os.exit(1)
 end
 
@@ -283,16 +290,16 @@ for _, arg in ipairs(args) do
 
 	elseif arg:find"^%-%-outputextension=" then
 		if hasOutputPaths then
-			errorline("Cannot specify both --outputextension and --outputpaths")
+			errorLine("Cannot specify both --outputextension and --outputpaths")
 		end
 		hasOutputExtension = true
 		outputExtension    = arg:match"^%-%-outputextension=(.*)$"
 
 	elseif arg == "--outputpaths" or arg == "-o" then
 		if hasOutputExtension then
-			errorline("Cannot specify both --outputpaths and --outputextension")
+			errorLine("Cannot specify both --outputpaths and --outputextension")
 		elseif pathsIn[1] then
-			errorline(arg.." must appear before any paths.")
+			errorLine(arg.." must appear before any path.")
 		end
 		hasOutputPaths = true
 
@@ -303,7 +310,7 @@ for _, arg in ipairs(args) do
 		silent = true
 
 	else
-		errorline("Unknown option '"..arg:gsub("=.*", "").."'.")
+		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
 	end
 end
 
@@ -317,7 +324,7 @@ printfNoise("%s", header)
 printfNoise(("="):rep(#header))
 
 if hasOutputPaths and #pathsOut < #pathsIn then
-	errorline("Missing output path for "..pathsIn[#pathsIn])
+	errorLine("Missing output path for "..pathsIn[#pathsIn])
 end
 
 
@@ -370,7 +377,7 @@ if messageHandlerPath ~= "" then
 	-- This way the message handler can easily define globals that the metaprogram uses.
 	local mainChunk, err = loadLuaFile(messageHandlerPath, pp.metaEnvironment)
 	if not mainChunk then
-		errorline("Could not load message handler: "..err)
+		errorLine("Could not load message handler...\n"..pp.tryToFormatError(err))
 	end
 
 	messageHandler = mainChunk()
@@ -380,13 +387,13 @@ if messageHandlerPath ~= "" then
 	elseif type(messageHandler) == "table" then
 		for message, _messageHandler in pairs(messageHandler) do
 			if type(message) ~= "string" then
-				errorline(messageHandlerPath..": Table of handlers must only contain messages as keys.")
+				errorLine(messageHandlerPath..": Table of handlers must only contain messages as keys.")
 			elseif type(_messageHandler) ~= "function" then
-				errorline(messageHandlerPath..": Table of handlers must only contain functions as values.")
+				errorLine(messageHandlerPath..": Table of handlers must only contain functions as values.")
 			end
 		end
 	else
-		errorline(messageHandlerPath..": File did not return a table or a function.")
+		errorLine(messageHandlerPath..": File did not return a table or a function.")
 	end
 end
 
@@ -402,20 +409,20 @@ if not hasOutputPaths then
 end
 
 if not pathsIn[1] then
-	errorline("No path(s) specified.")
+	errorLine("No path(s) specified.")
 elseif #pathsIn ~= #pathsOut then
-	errorline(F("Number of input and output paths differ. (%d in, %d out)", #pathsIn, #pathsOut))
+	errorLine(F("Number of input and output paths differ. (%d in, %d out)", #pathsIn, #pathsOut))
 end
 
 local pathsSetIn  = {}
 local pathsSetOut = {}
 for i = 1, #pathsIn do
-	if pathsSetIn [pathsIn [i]] then  errorline("Duplicate input path: " ..pathsIn [i])  end
-	if pathsSetOut[pathsOut[i]] then  errorline("Duplicate output path: "..pathsOut[i])  end
+	if pathsSetIn [pathsIn [i]] then  errorLine("Duplicate input path: " ..pathsIn [i])  end
+	if pathsSetOut[pathsOut[i]] then  errorLine("Duplicate output path: "..pathsOut[i])  end
 	pathsSetIn [pathsIn [i]] = true
 	pathsSetOut[pathsOut[i]] = true
-	if pathsSetOut[pathsIn [i]] then  errorline("Path is both input and output: "..pathsIn [i])  end
-	if pathsSetIn [pathsOut[i]] then  errorline("Path is both input and output: "..pathsOut[i])  end
+	if pathsSetOut[pathsIn [i]] then  errorLine("Path is both input and output: "..pathsIn [i])  end
+	if pathsSetIn [pathsOut[i]] then  errorLine("Path is both input and output: "..pathsOut[i])  end
 end
 
 
@@ -444,7 +451,7 @@ for i, pathIn in ipairs(pathsIn) do
 		pathMeta = nil
 	end
 
-	local info = pp.processFile{
+	local info, err = pp.processFile{
 		pathIn          = pathIn,
 		pathMeta        = pathMeta,
 		pathOut         = pathOut,
@@ -485,13 +492,10 @@ for i, pathIn in ipairs(pathsIn) do
 				lua = luaModified
 
 			elseif luaModified ~= nil then
-				local err = F(
+				error(F(
 					"%s: Message handler did not return a string for 'aftermeta'. (Got %s)",
 					messageHandlerPath, type(luaModified)
-				)
-				print("Error @ "..err)
-				sendMessage("fileerror", pathIn, err)
-				os.exit(1)
+				))
 			end
 
 			return lua
@@ -502,15 +506,20 @@ for i, pathIn in ipairs(pathsIn) do
 		end,
 
 		onError = function(err)
-			sendMessage("fileerror", pathIn, err)
+			xpcall(function()
+				sendMessage("fileerror", pathIn, err)
+			end, function(err)
+				io.stderr:write("Additional error in 'fileerror' message handler...\n", pp.tryToFormatError(tostring(err)), "\n")
+			end)
 			os.exit(1)
 		end,
 	}
+	assert(info, err) -- The onError() handler above should have been called and we should have exited already.
 
-	byteCount     = byteCount+info.processedByteCount
-	lineCount     = lineCount+info.lineCount
-	lineCountCode = lineCountCode+info.linesOfCode
-	tokenCount    = tokenCount+info.tokenCount
+	byteCount     = byteCount     + info.processedByteCount
+	lineCount     = lineCount     + info.lineCount
+	lineCountCode = lineCountCode + info.linesOfCode
+	tokenCount    = tokenCount    + info.tokenCount
 
 	if processingInfoPath ~= "" then
 
