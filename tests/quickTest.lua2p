@@ -41,6 +41,7 @@ end
 
 local c   = !(100+sum(10, 5))
 local str = !(run("tests/quickTestInclude.lua", "what"))
+print(str)
 
 _G.!!("global"..math.random(5)) = 99
 

@@ -29,6 +29,7 @@ local data = 'a\n1Ü2"\n\0003'
 
 local c   = 115
 local str = "Included string #64.\nargs[1] is what"
+print(str)
 
 _G.global3 = 99
 

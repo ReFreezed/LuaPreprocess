@@ -318,10 +318,10 @@ function errorf(sOrLevel, ...)
 	end
 end
 
-function errorLine(err)
-	if type(err) ~= "string" then  error(err)  end
-	error("\0"..err, 0) -- The 0 tells our own error handler not to print the traceback.
-end
+-- function errorLine(err) -- Unused.
+-- 	if type(err) ~= "string" then  error(err)  end
+-- 	error("\0"..err, 0) -- The 0 tells our own error handler not to print the traceback.
+-- end
 function errorfLine(s, ...)
 	errorf(0, "\0"..s, ...) -- The 0 tells our own error handler not to print the traceback.
 end
@@ -366,13 +366,12 @@ do
 		local linePre2End   = findEndOfLine  (contents, linePre2Start-1)
 		-- printfError("pos %d | lines %d..%d, %d..%d, %d..%d", pos, linePre2Start,linePre2End+1, linePre1Start,linePre1End+1, lineStart,lineEnd+1) -- DEBUG
 
-		errorfLine("\0%s:%d: [%s] %s\n>\n%s%s%s>-%s^",
-			path, ln, agent, s,
+		errorOnLine(path, ln, agent, "%s\n>\n%s%s%s>-%s^",
+			s,
 			(linePre2Start < linePre1Start and linePre2Start <= linePre2End) and F("> %s\n", (contents:sub(linePre2Start, linePre2End):gsub("\t", "    "))) or "",
 			(linePre1Start < lineStart     and linePre1Start <= linePre1End) and F("> %s\n", (contents:sub(linePre1Start, linePre1End):gsub("\t", "    "))) or "",
 			(                                  lineStart     <= lineEnd    ) and F("> %s\n", (contents:sub(lineStart,     lineEnd    ):gsub("\t", "    "))) or ">\n",
-			("-"):rep(pos - lineStart + 3*countSubString(contents, lineStart, lineEnd, "\t", true)),
-			nil
+			("-"):rep(pos - lineStart + 3*countSubString(contents, lineStart, lineEnd, "\t", true))
 		)
 	end
 end
@@ -569,9 +568,9 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 
 			if tok.long then
 				-- Check for nesting of [[...]], which is depricated in Lua.
-				local mainChunk, err = loadLuaString("--"..tok.representation, "@")
+				local chunk, err = loadLuaString("--"..tok.representation, "@")
 
-				if not mainChunk then
+				if not chunk then
 					local lnInString, luaErr = err:match'^:(%d+): (.*)'
 					if luaErr then
 						errorOnLine(path, getLineNumber(s, reprStart)+tonumber(lnInString)-1, "Tokenizer", "Malformed long comment. (%s)", luaErr)
@@ -1149,12 +1148,12 @@ if IS_LUA_52_OR_LATER then
 	end
 else
 	function loadLuaString(lua, chunkName, env)
-		local mainChunk, err = loadstring(lua, chunkName)
-		if not mainChunk then  return nil, err  end
+		local chunk, err = loadstring(lua, chunkName)
+		if not chunk then  return nil, err  end
 
-		if env then  setfenv(mainChunk, env)  end
+		if env then  setfenv(chunk, env)  end
 
-		return mainChunk
+		return chunk
 	end
 end
 
@@ -1164,12 +1163,12 @@ if IS_LUA_52_OR_LATER then
 	end
 else
 	function loadLuaFile(path, env)
-		local mainChunk, err = loadfile(path)
-		if not mainChunk then  return nil, err  end
+		local chunk, err = loadfile(path)
+		if not chunk then  return nil, err  end
 
-		if env then  setfenv(mainChunk, env)  end
+		if env then  setfenv(chunk, env)  end
 
-		return mainChunk
+		return chunk
 	end
 end
 
@@ -1214,15 +1213,21 @@ end
 
 
 
--- getRelativeLocationText( tokenOfInterest, otherToken )
--- getRelativeLocationText( tokenOfInterest, otherFilename, otherLineNumber )
+-- text = getRelativeLocationText( tokenOfInterest, otherToken )
+-- text = getRelativeLocationText( tokenOfInterest, otherFilename, otherLineNumber )
 function getRelativeLocationText(tokOfInterest, otherFilename, otherLn)
 	if type(otherFilename) == "table" then
 		return getRelativeLocationText(tokOfInterest, otherFilename.file, otherFilename.line)
 	end
 
-	if tokOfInterest.file ~= otherFilename then  return F("at %s:%d", tokOfInterest.file, tokOfInterest.line)  end
-	if tokOfInterest.line ~= otherLn       then  return F("on line %d", tokOfInterest.line)  end
+	if not (tokOfInterest.file and tokOfInterest.line) then
+		return "at <UnknownLocation>"
+	end
+
+	if tokOfInterest.file   ~= otherFilename then  return F("at %s:%d", tokOfInterest.file, tokOfInterest.line)  end
+	if tokOfInterest.line+1 == otherLn       then  return F("on the previous line")  end
+	if tokOfInterest.line-1 == otherLn       then  return F("on the next line")  end
+	if tokOfInterest.line   ~= otherLn       then  return F("on line %d", tokOfInterest.line)  end
 	return "on the same line"
 end
 
@@ -1357,11 +1362,11 @@ metaFuncs.pack = pack
 function metaFuncs.run(path, ...)
 	assertarg(1, path, "string")
 
-	local mainChunk, err = loadLuaFile(path, metaEnv)
-	if not mainChunk then  errorLine(err)  end
+	local main_chunk, err = loadLuaFile(path, metaEnv)
+	if not main_chunk then  error(err, 0)  end
 
 	-- We want multiple return values while avoiding a tail call to preserve stack info.
-	local returnValues = pack(mainChunk(...))
+	local returnValues = pack(main_chunk(...))
 	return unpack(returnValues, 1, returnValues.n)
 end
 
@@ -1964,7 +1969,7 @@ local function doLateExpansions(tokensToExpand, fileBuffers, params, stats)
 								errorAtToken(fileBuffers, tableStartTok, nil, "Macro", "Syntax error: Could not find end of table constructor before EOF.")
 
 							elseif tok.type:find"^pp_" then
-								errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starting %s)", getRelativeLocationText(ppKeywordTok, tok))
+								errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
 
 							elseif bracketDepth == 1 and isToken(tok, "punctuation", "}") then
 								tableInsert(argTokens, table.remove(tokenStack))
@@ -2042,7 +2047,7 @@ local function doLateExpansions(tokensToExpand, fileBuffers, params, stats)
 										errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
 
 									elseif tok.type:find"^pp_" then
-										errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starting %s)", getRelativeLocationText(ppKeywordTok, tok))
+										errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
 
 									elseif not depthStack[1] and (isToken(tok, "punctuation", ",") or isToken(tok, "punctuation", ")")) then
 										break
@@ -2166,7 +2171,7 @@ local function _processFileOrString(params, isFile)
 		luaUnprocessed, err = getFileContents(pathIn, true)
 
 		if not luaUnprocessed then
-			errorfLine("Could not read file '%s'. (%s)", pathIn, err)
+			errorf("Could not read file '%s'. (%s)", pathIn, err)
 		end
 
 		currentPathIn  = params.pathIn
@@ -2364,14 +2369,19 @@ local function _processFileOrString(params, isFile)
 	-- Note: Can be multiple actual lines if extended.
 	local function processMetaLine(isDual, metaStartTok)
 		local metaLineIndexStart = tokenIndex
-		local bracketBalance     = 0
+		local depthStack         = {}
 
 		while true do
 			local tok = tokens[tokenIndex]
 
 			if not tok then
-				if bracketBalance ~= 0 then
-					errorAtToken(fileBuffers, metaStartTok, nil, "Parser", "Preprocessor line has unbalanced brackets. (Reached EOF.)")
+				if depthStack[1] then
+					tok = depthStack[#depthStack].startToken
+					errorAtToken(
+						fileBuffers, tok, nil, "Parser",
+						"Syntax error: Could not find matching bracket before EOF. (Preprocessor line starts %s)",
+						getRelativeLocationText(metaStartTok, tok)
+					)
 				end
 				if isDual then
 					outputFinalDualValueStatement(metaLineIndexStart, tokenIndex-1)
@@ -2381,7 +2391,7 @@ local function _processFileOrString(params, isFile)
 
 			local tokType = tok.type
 			if
-				bracketBalance == 0 and (
+				not depthStack[1] and (
 					(tokType == "whitespace" and tok.value:find("\n", 1, true)) or
 					(tokType == "comment"    and not tok.long)
 				)
@@ -2409,7 +2419,7 @@ local function _processFileOrString(params, isFile)
 					tableInsert(tokensToProcess, tokExtra)
 
 				elseif tokType == "comment" and not tok.long then
-					local tokExtra = {type="whitespace", representation="\n", value="\n", line=tok.line, position=tok.position}
+					local tokExtra = newTokenAt({type="whitespace", representation="\n", value="\n"}, tok)
 					tableInsert(tokensToProcess, tokExtra)
 				end
 
@@ -2421,17 +2431,29 @@ local function _processFileOrString(params, isFile)
 			else
 				tableInsert(metaParts, tok.representation)
 
-				if tokType == "punctuation" and isAny(tok.value, "(","{","[") then
-					bracketBalance = bracketBalance + 1
-				elseif tokType == "punctuation" and isAny(tok.value, ")","}","]") then
-					bracketBalance = bracketBalance - 1
-					if bracketBalance < 0 then
+				if isToken(tok, "punctuation", "(") then
+					tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]=")"})
+				elseif isToken(tok, "punctuation", "[") then
+					tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="]"})
+				elseif isToken(tok, "punctuation", "{") then
+					tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="}"})
+
+				elseif
+					isToken(tok, "punctuation", ")") or
+					isToken(tok, "punctuation", "]") or
+					isToken(tok, "punctuation", "}")
+				then
+					if not depthStack[1] then
+						errorAtToken(fileBuffers, tok, nil, "Parser", "Unexpected '%s'.", tok.value)
+					elseif not isToken(tok, unpack(depthStack[#depthStack])) then
+						local startTok = depthStack[#depthStack].startToken
 						errorAtToken(
 							fileBuffers, tok, nil, "Parser",
-							"Unexpected '%s'. Preprocessor line (starting %s) has unbalanced brackets.",
-							tok.value, getRelativeLocationText(metaStartTok, tok)
+							"Expected '%s' (to close '%s' %s) but got '%s'. (Preprocessor line starts %s)",
+							depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value, getRelativeLocationText(metaStartTok, tok)
 						)
 					end
+					table.remove(depthStack)
 				end
 			end
 
@@ -2445,40 +2467,39 @@ local function _processFileOrString(params, isFile)
 
 		local tokType = tok.type
 
-		-- Meta block or start of meta line.
+		-- Metaprogram.
 		--------------------------------
 
-		-- Meta block. Examples:
+		-- Preprocessor block. Examples:
 		-- !( function sum(a, b) return a+b; end )
 		-- local text = !("Hello, mr. "..getName())
 		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
 		if tokType == "pp_entry" and isTokenAndNotNil(tokens[tokenIndex+1], "punctuation", "(") then
-			local startToken  = tok
-			local doOutputLua = startToken.double
-			tokenIndex = tokenIndex+2 -- Jump past "!(" or "!!(".
+			local startTok    = tok
+			local startIndex  = tokenIndex
+			local doOutputLua = startTok.double
+			tokenIndex        = tokenIndex + 2 -- Eat "!(" or "!!("
 
 			flushTokensToProcess()
 
 			local tokensInBlock = {}
-			local depth         = 1
+			local parensDepth   = 1 -- @Incomplete: Use depthStack like in other places.
 
 			while true do
 				tok = tokens[tokenIndex]
+
 				if not tok then
-					errorAtToken(fileBuffers, startToken, nil, "Parser", "Missing end of preprocessor block.")
-				end
+					errorAtToken(fileBuffers, startTok, nil, "Parser", "Missing end of preprocessor block.")
 
-				tokType = tok.type
+				elseif isToken(tok, "punctuation", "(") then
+					parensDepth = parensDepth + 1
 
-				if tokType == "punctuation" and tok.value == "(" then
-					depth = depth+1
+				elseif isToken(tok, "punctuation", ")") then
+					parensDepth = parensDepth - 1
+					if parensDepth == 0 then  break  end
 
-				elseif tokType == "punctuation" and tok.value == ")" then
-					depth = depth-1
-					if depth == 0 then  break  end
-
-				elseif tokType == "pp_entry" then
-					errorAtToken(fileBuffers, tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(startToken, tok))
+				elseif tok.type:find"^pp_" then
+					errorAtToken(fileBuffers, tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(startTok, tok))
 				end
 
 				tableInsert(tokensInBlock, tok)
@@ -2494,25 +2515,22 @@ local function _processFileOrString(params, isFile)
 
 			elseif doOutputLua then
 				-- We could do something other than error here. Room for more functionality.
-				errorAtToken(
-					fileBuffers, startToken, startToken.position+3, "Parser",
-					"Preprocessor block variant does not contain a valid expression that results in a value."
-				)
+				errorAfterToken(fileBuffers, tokens[startIndex+1], "Parser", "Preprocessor block does not contain a valid value expression.")
 
 			else
 				tableInsert(metaParts, metaBlock)
 				tableInsert(metaParts, "\n")
 			end
 
-		-- Meta line. Example:
+		-- Preprocessor line. Example:
 		-- !for i = 1, 3 do
-		--    print("Marco? Polo!")
+		--     print("Marco? Polo!")
 		-- !end
 		--
-		-- Extended meta line. Example:
+		-- Preprocessor line, extended. Example:
 		-- !newClass{
-		--    name  = "Entity",
-		--    props = {x=0, y=0},
+		--     name  = "Entity",
+		--     props = {x=0, y=0},
 		-- }
 		--
 		-- Dual code. Example:
@@ -2525,7 +2543,7 @@ local function _processFileOrString(params, isFile)
 			tokenIndex = tokenIndex+1
 			processMetaLine(tok.double, tok)
 
-		-- Non-meta.
+		-- Normal code.
 		--------------------------------
 		else
 			tableInsert(tokensToProcess, tok)
@@ -2558,8 +2576,8 @@ local function _processFileOrString(params, isFile)
 		file:close()
 	end
 
-	local mainChunk, err = loadLuaString(luaMeta, (params.pathMeta and "@" or "")..metaPathForErrorMessages, metaEnv)
-	if not mainChunk then
+	local main_chunk, err = loadLuaString(luaMeta, "@"..metaPathForErrorMessages, metaEnv)
+	if not main_chunk then
 		local ln, _err = err:match'^.-:(%d+): (.*)'
 		errorOnLine(metaPathForErrorMessages, (tonumber(ln) or 0), nil, "%s", (_err or err))
 	end
@@ -2567,7 +2585,7 @@ local function _processFileOrString(params, isFile)
 	if params.onBeforeMeta then  params.onBeforeMeta()  end
 
 	isRunningMeta = true
-	mainChunk() -- Note: The caller should clean up metaPathForErrorMessages etc. on error.
+	main_chunk() -- Note: Our caller should clean up metaPathForErrorMessages etc. on error.
 	isRunningMeta = false
 
 	if not isDebug and params.pathMeta then
@@ -2591,7 +2609,7 @@ local function _processFileOrString(params, isFile)
 		if type(luaModified) == "string" then
 			lua = luaModified
 		elseif luaModified ~= nil then
-			errorfLine("onAfterMeta() did not return a string. (Got %s)", type(luaModified))
+			errorf("onAfterMeta() did not return a string. (Got %s)", type(luaModified))
 		end
 	end
 
@@ -2609,10 +2627,10 @@ local function _processFileOrString(params, isFile)
 
 	-- Check if the output is valid Lua.
 	if params.validate ~= false then
-		local luaToCheck     = lua:gsub("^#![^\n]*", "")
-		local mainChunk, err = loadLuaString(luaToCheck, (isFile and params.pathMeta and "@" or "")..pathOut)
+		local luaToCheck = lua:gsub("^#![^\n]*", "")
+		local chunk, err = loadLuaString(luaToCheck, "@"..pathOut)
 
-		if not mainChunk then
+		if not chunk then
 			local ln, _err = err:match'^.-:(%d+): (.*)'
 			errorOnLine(pathOut, (tonumber(ln) or 0), nil, "%s", (_err or err))
 		end
