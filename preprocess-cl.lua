@@ -314,7 +314,7 @@ for _, arg in ipairs(args) do
 	elseif arg == "--silent" then
 		silent = true
 
-	elseif arg == "--faststrings" then -- @Doc
+	elseif arg == "--faststrings" then
 		fastStrings = true
 
 	else

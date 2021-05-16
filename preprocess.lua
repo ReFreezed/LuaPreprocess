@@ -118,7 +118,7 @@
 
 
 
-local PP_VERSION = "1.13.0"
+local PP_VERSION = "1.13.1"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -160,8 +160,6 @@ local ESCAPE_SEQUENCES = {
 } for k, v in pairs(ESCAPE_SEQUENCES_EXCEPT_QUOTES) do  ESCAPE_SEQUENCES[k] = v  end
 
 local USELESS_TOKENS = {whitespace=true, comment=true}
-
-local ERROR_UNFINISHED_VALUE = 1
 
 local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
 if not major then
@@ -397,6 +395,8 @@ end
 
 
 
+local ERROR_UNFINISHED_STRINGLIKE = 1
+
 local function parseStringlike(s, ptr)
 	local reprStart = ptr
 	local reprEnd
@@ -429,7 +429,7 @@ local function parseStringlike(s, ptr)
 
 		local i1, i2 = s:find("%]"..longEqualSigns.."%]", ptr)
 		if not i1 then
-			return nil, ERROR_UNFINISHED_VALUE
+			return nil, ERROR_UNFINISHED_STRINGLIKE
 		end
 
 		reprEnd  = i2
@@ -559,7 +559,7 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 			tok, ptr = parseStringlike(s, ptr)
 			if not tok then
 				local errCode = ptr
-				if errCode == ERROR_UNFINISHED_VALUE then
+				if errCode == ERROR_UNFINISHED_STRINGLIKE then
 					errorInFile(s, path, reprStart, "Tokenizer", "Unfinished long comment.")
 				else
 					errorInFile(s, path, reprStart, "Tokenizer", "Invalid comment.")
@@ -642,7 +642,7 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 			tok, ptr = parseStringlike(s, ptr)
 			if not tok then
 				local errCode = ptr
-				if errCode == ERROR_UNFINISHED_VALUE then
+				if errCode == ERROR_UNFINISHED_STRINGLIKE then
 					errorInFile(s, path, reprStart, "Tokenizer", "Unfinished long string.")
 				else
 					errorInFile(s, path, reprStart, "Tokenizer", "Invalid long string.")
@@ -2749,7 +2749,7 @@ local pp = {
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
 	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
-	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)  @Doc
+	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
@@ -2775,7 +2775,7 @@ local pp = {
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
 	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
-	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)  @Doc
+	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.

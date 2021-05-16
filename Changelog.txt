@@ -1,6 +1,15 @@
 Changelog
 LuaPreprocess
 
+v1.13.1 (2021-05-16)
+Library:
+- Dual code now supports multiple identifiers: !!x, y = ...
+- Some non-ASCII characters in serialized strings look nicer.
+- Added params.fastStrings .
+- Fixed backtick strings not working in macros.
+Command line program:
+- Added --faststrings option.
+
 v1.13 (2021-05-14)
 Library:
 - Added macros (in the form of '@insert func()' or '@@func()').
