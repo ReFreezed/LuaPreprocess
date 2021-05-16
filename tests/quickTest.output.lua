@@ -41,11 +41,10 @@ local z = 137
 
 
 -- Dual code. (Outputs both both preprocessor code and normal Lua. Can only be used for assignment statements.)
-local alpha    = "[%a_]"
-local alphanum = "[%a%d_]"
-local num      = "%d"
-local ident    = "[%a_][%a%d_]*"
-local funcCall = "[%a_][%a%d_]*%(.-%)"
+local alpha, alphanum = "[%a_]", "[%a%d_]"
+local num             = "%d"
+local ident           = "[%a_][%a%d_]*"
+local funcCall        = "[%a_][%a%d_]*%(.-%)"
 
 local s = [[:: 2 * hello5( foo ){ ... }]]
 print(s:match(ident))    -- "hello5"

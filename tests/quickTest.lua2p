@@ -61,11 +61,10 @@ local z = !(z)
 
 
 -- Dual code. (Outputs both both preprocessor code and normal Lua. Can only be used for assignment statements.)
-!!local alpha    = "[%a_]"
-!!local alphanum = "[%a%d_]"
-!!local num      = "%"..justTheLetterD -- The value expression is evaluated in the metaprogram before outputted to the final program.
-!!local ident    = alpha..alphanum.."*"
-local   funcCall = !(ident.."%(.-%)")
+!!local alpha, alphanum = "[%a_]", "[%a%d_]"
+!!local num             = "%"..justTheLetterD -- The value expression is evaluated in the metaprogram before outputted to the final program.
+!!local ident           = alpha..alphanum.."*"
+local   funcCall        = !(ident.."%(.-%)")
 
 local s = [[:: 2 * hello5( foo ){ ... }]]
 print(s:match(ident))    -- "hello5"

@@ -137,14 +137,18 @@ end)
 
 doTest("Dual code", function()
 	local pp = assert(loadfile"preprocess.lua")()
-	local luaIn = [[
+
+	local luaOut = assert(pp.processString{ code=[[
 		!local  one = 1
 		!local  two = 2
 		!!local sum = one+two -- The expression is evaluated in the metaprogram.
-	]]
-
-	local luaOut = assert(pp.processString{ code=luaIn })
+	]]})
 	assertCodeOutput(luaOut, [[local sum = 3]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!!local n, s = 5^5, "foo".."bar";
+	]]})
+	assertCodeOutput(luaOut, [[local n, s = 3125, "foobar";]])
 end)
 
 doTest("Expression or not?", function()

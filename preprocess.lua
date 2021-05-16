@@ -201,7 +201,7 @@ local assertarg
 local cleanError
 local copyTable
 local countString, countSubString
-local errorf, errorLine, errorfLine, errorOnLine, errorInFile, errorAtToken
+local errorf, errorLine, errorfLine, errorOnLine, errorInFile, errorAtToken, errorAfterToken
 local errorIfNotRunningMeta
 local escapePattern
 local F, tryToFormatError
@@ -380,6 +380,11 @@ end
 -- errorAtToken( fileBuffers, token, position=token.position, agent, s, ... )
 function errorAtToken(fileBuffers, tok, pos, agent, s, ...)
 	errorInFile(fileBuffers[tok.file], tok.file, (pos or tok.position), agent, s, ...)
+end
+
+-- errorAfterToken( fileBuffers, token, agent, s, ... )
+function errorAfterToken(fileBuffers, tok, agent, s, ...)
+	errorInFile(fileBuffers[tok.file], tok.file, tok.position+#tok.representation, agent, s, ...)
 end
 
 
@@ -1171,15 +1176,16 @@ end
 
 
 -- token, index = getNextUsableToken( tokens, startIndex [, indexLimit, direction=1 ] )
-function getNextUsableToken(tokens, i, iLimit, dir)
+function getNextUsableToken(tokens, iStart, iLimit, dir)
 	dir = dir or 1
 
-	iLimit
-		=   dir < 0
+	iLimit = (
+		dir < 0
 		and math.max((iLimit or 1  ), 1)
 		or  math.min((iLimit or 1/0), #tokens)
+	)
 
-	for i = i, iLimit, dir do
+	for i = iStart, iLimit, dir do
 		if not USELESS_TOKENS[tokens[i].type] then
 			return tokens[i], i
 		end
@@ -2242,71 +2248,52 @@ local function _processFileOrString(params, isFile)
 		-- !!x = ...
 
 		-- Check whether local or not.
-		local tok, i = getNextUsableToken(tokens, metaLineIndexStart, metaLineIndexEnd)
-		if not tok then
-			errorAtToken(fileBuffers, tokens[metaLineIndexStart], nil, "Parser/DualCodeLine", "Unexpected end of preprocessor line.")
-		end
-
-		local isLocal = isToken(tok, "keyword", "local")
+		local iPrev, tok, i = metaLineIndexStart-1, getNextUsableToken(tokens, metaLineIndexStart, metaLineIndexEnd)
+		local isLocal       = isTokenAndNotNil(tok, "keyword", "local")
 
 		if isLocal then
-			tok, i = getNextUsableToken(tokens, i+1, metaLineIndexEnd)
-			if not tok then
-				errorAtToken(fileBuffers, tokens[metaLineIndexStart], nil, "Parser/DualCodeLine", "Unexpected end of preprocessor line.")
-			end
+			iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
 		end
 
 		-- Check for identifier.
-		-- @Incomplete: Support multiple assignments. :MultipleAssignments
-		if not isToken(tok, "identifier") then
-			errorAtToken(fileBuffers, tok, nil, "Parser/DualCodeLine", "Expected an identifier.")
+		if isTokenAndNotNil(tok, "identifier") then
+			-- void
+		elseif isLocal then
+			errorAfterToken(fileBuffers, tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier.")
+		else
+			errorAfterToken(fileBuffers, tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier or 'local'.")
 		end
 
-		local identTok = tok
-		local ident    = identTok.value
+		local identTokens = {tok}
+		iPrev, tok, i     = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
+
+		while isTokenAndNotNil(tok, "punctuation", ",") do
+			iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
+			if not isTokenAndNotNil(tok, "identifier") then
+				errorAfterToken(fileBuffers, tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier after ','.")
+			end
+
+			tableInsert(identTokens, tok)
+			iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
+		end
 
 		-- Check for "=".
-		tok, i = getNextUsableToken(tokens, i+1, metaLineIndexEnd)
-		if not tok then
-			errorAtToken(fileBuffers, tokens[metaLineIndexStart], nil, "Parser/DualCodeLine", "Unexpected end of preprocessor line.")
-		elseif isToken(tok, "punctuation", ",") then
-			-- :MultipleAssignments
-			errorAtToken(fileBuffers, identTok, nil, "Parser/DualCodeLine", "Preprocessor line must be a single assignment. (Multiple assignments are not supported.)")
-		elseif not isToken(tok, "punctuation", "=") then
-			errorAtToken(fileBuffers, identTok, nil, "Parser/DualCodeLine", "Preprocessor line must be an assignment.")
+		if not isTokenAndNotNil(tok, "punctuation", "=") then
+			errorAfterToken(fileBuffers, tokens[iPrev], "Parser/DualCodeLine", "Expected '='.")
 		end
 
 		local indexAfterEqualSign = i+1
 
-		if not getNextUsableToken(tokens, indexAfterEqualSign, metaLineIndexEnd) then
-			errorAtToken(fileBuffers, tok, nil, "Parser/DualCodeLine", "Unexpected end of preprocessor line.")
-		end
-
 		-- Check if the rest of the line is an expression.
-		if true then
-			local lastUsableToken, lastUsableIndex = getNextUsableToken(tokens, metaLineIndexEnd, 1, -1)
+		local parts = {"return'',"}
+		insertTokenRepresentations(parts, tokens, indexAfterEqualSign, metaLineIndexEnd)
 
-			local parts = {"return ("}
-			if isToken(lastUsableToken, "punctuation", ";") then
-				insertTokenRepresentations(parts, tokens, indexAfterEqualSign, lastUsableIndex-1)
+		if not loadLuaString(table.concat(parts)) then
+			iPrev, tok, i = i, getNextUsableToken(tokens, indexAfterEqualSign, metaLineIndexEnd)
+			if tok then
+				errorAtToken(fileBuffers, tok, nil, "Parser/DualCodeLine", "Invalid value expression after '='.")
 			else
-				insertTokenRepresentations(parts, tokens, indexAfterEqualSign, metaLineIndexEnd)
-			end
-			tableInsert(parts, "\n)")
-
-			if not loadLuaString(table.concat(parts), "@") then
-				parts = {"testValue = "}
-				if isToken(lastUsableToken, "punctuation", ";") then
-					insertTokenRepresentations(parts, tokens, indexAfterEqualSign, lastUsableIndex-1)
-				else
-					insertTokenRepresentations(parts, tokens, indexAfterEqualSign, metaLineIndexEnd)
-				end
-
-				if loadLuaString(table.concat(parts), "@") then
-					errorAtToken(fileBuffers, tokens[metaLineIndexStart], nil, "Parser/DualCodeLine", "Preprocessor line must be a single assignment statement.")
-				else
-					-- void  (A normal Lua error will trigger later.)
-				end
+				errorAfterToken(fileBuffers, tokens[indexAfterEqualSign-1], "Parser/DualCodeLine", "Invalid value expression after '='.")
 			end
 		end
 
@@ -2323,12 +2310,25 @@ local function _processFileOrString(params, isFile)
 				outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
 			end
 
-			if isLocal then  tableInsert(metaParts, 'local ')  end
+			if isLocal then  tableInsert(metaParts, "local ")  end
 
-			tableInsert(metaParts, ident)
-			tableInsert(metaParts, ' = "); __VAL(')
-			tableInsert(metaParts, ident)
-			tableInsert(metaParts, '); __LUA("\\n")\n')
+			for identIndex, identTok in ipairs(identTokens) do
+				if identIndex > 1 then  tableInsert(metaParts, ", ")  end
+				tableInsert(metaParts, identTok.value)
+			end
+			tableInsert(metaParts, ' = ")')
+			for identIndex, identTok in ipairs(identTokens) do
+				if identIndex > 1 then  tableInsert(metaParts, '; __LUA(", ")')  end
+				tableInsert(metaParts, "; __VAL(")
+				tableInsert(metaParts, identTok.value)
+				tableInsert(metaParts, ")")
+			end
+
+			if isToken(getNextUsableToken(tokens, metaLineIndexEnd, 1, -1), "punctuation", ";") then
+				tableInsert(metaParts, '; __LUA(";\\n");\n')
+			else
+				tableInsert(metaParts, '; __LUA("\\n")\n')
+			end
 
 		else
 			tableInsert(metaParts, '__LUA"')
@@ -2337,18 +2337,31 @@ local function _processFileOrString(params, isFile)
 				outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
 			end
 
-			if isLocal then  tableInsert(metaParts, 'local ')  end
+			if isLocal then  tableInsert(metaParts, "local ")  end
 
-			tableInsert(metaParts, ident)
-			tableInsert(metaParts, ' = "__VAL(')
-			tableInsert(metaParts, ident)
-			tableInsert(metaParts, ')__LUA"\\n"\n')
+			for identIndex, identTok in ipairs(identTokens) do
+				if identIndex > 1 then  tableInsert(metaParts, ", ")  end
+				tableInsert(metaParts, identTok.value)
+			end
+			tableInsert(metaParts, ' = "')
+			for identIndex, identTok in ipairs(identTokens) do
+				if identIndex > 1 then  tableInsert(metaParts, '__LUA", "')  end
+				tableInsert(metaParts, "__VAL(")
+				tableInsert(metaParts, identTok.value)
+				tableInsert(metaParts, ")")
+			end
+
+			if isToken(getNextUsableToken(tokens, metaLineIndexEnd, 1, -1), "punctuation", ";") then
+				tableInsert(metaParts, '__LUA";\\n";\n')
+			else
+				tableInsert(metaParts, '__LUA"\\n"\n')
+			end
 		end
 
 		flushTokensToProcess()
 	end--outputFinalDualValueStatement()
 
-	-- Note: Can be multiple lines if extended.
+	-- Note: Can be multiple actual lines if extended.
 	local function processMetaLine(isDual, metaStartTok)
 		local metaLineIndexStart = tokenIndex
 		local bracketBalance     = 0
