@@ -1763,17 +1763,22 @@ local function newTokenAt(tok, locationTok)
 	return tok
 end
 
-local function doExpansions(tokensRaw, fileBuffers, params, stats)
+local function doEarlyExpansions(tokensToExpand, fileBuffers, params, stats)
 	if not stats.hasPreprocessorCode then
-		return tokensRaw
+		return tokensToExpand
 	end
+
+	--
+	-- Here we expand simple things that makes it easier for
+	-- doLateExpansions() to do more elaborate expansions.
+	--
 
 	local tokenStack  = {} -- We process the last token first, and we may push new tokens onto the stack.
 	local insertCount = 0
 	local tokens      = {} -- To return.
 
-	for i = #tokensRaw, 1, -1 do
-		tableInsert(tokenStack, tokensRaw[i])
+	for i = #tokensToExpand, 1, -1 do
+		tableInsert(tokenStack, tokensToExpand[i])
 	end
 
 	while tokenStack[1] do
@@ -1792,11 +1797,55 @@ local function doExpansions(tokensRaw, fileBuffers, params, stats)
 				table.remove(tokenStack) -- "@line"
 				tableInsert(tokens, newTokenAt({type="number", value=ppKeywordTok.line, representation=F("%d",ppKeywordTok.line)}, ppKeywordTok))
 
+			else
+				-- Expand later.
+				tableInsert(tokens, ppKeywordTok)
+				table.remove(tokenStack)
+			end
+
+		-- Backtick string.
+		elseif isToken(tok, "string") and tok.representation:find"^`" then
+			local stringTok = tok
+			stringTok.representation = F("%q", stringTok.value)
+
+			tableInsert(tokens, stringTok)
+			table.remove(tokenStack)
+
+		-- Anything else.
+		else
+			tableInsert(tokens, tok)
+			table.remove(tokenStack)
+		end
+	end--while tokenStack
+
+	return tokens
+end
+
+local function doLateExpansions(tokensToExpand, fileBuffers, params, stats)
+	if not stats.hasPreprocessorCode then
+		return tokensToExpand
+	end
+
+	local tokenStack  = {} -- We process the last token first, and we may push new tokens onto the stack.
+	local insertCount = 0
+	local tokens      = {} -- To return.
+
+	for i = #tokensToExpand, 1, -1 do
+		tableInsert(tokenStack, tokensToExpand[i])
+	end
+
+	while tokenStack[1] do
+		local tok = tokenStack[#tokenStack]
+
+		-- Keyword.
+		if isToken(tok, "pp_keyword") then
+			local ppKeywordTok = tok
+
 			-- @insert "name"
 			-- @insert identifier ( argument1, ... )
 			-- @insert identifier " ... "
 			-- @insert identifier { ... }
-			elseif ppKeywordTok.value == "insert" then
+			if ppKeywordTok.value == "insert" then
 				local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
 				if not (isTokenAndNotNil(tokNext, "string") or isTokenAndNotNil(tokNext, "identifier")) then
 					errorAtToken(
@@ -1849,6 +1898,8 @@ local function doExpansions(tokensRaw, fileBuffers, params, stats)
 					end
 
 					local toInsertTokens = _tokenize(toInsertLua, toInsertName, true, params.backtickStrings, params.jitSyntax)
+					toInsertTokens       = doEarlyExpansions(toInsertTokens, fileBuffers, params, stats)
+
 					for i = #toInsertTokens, 1, -1 do
 						tableInsert(tokenStack, toInsertTokens[i])
 					end
@@ -1886,6 +1937,10 @@ local function doExpansions(tokensRaw, fileBuffers, params, stats)
 					elseif isTokenAndNotNil(tokNext, "punctuation", "{") then
 						popTokens(tokenStack, iNext) -- "{"
 
+						--
+						-- (Similar code as `@insert identifier()` below.)
+						--
+
 						-- Add "!!(ident".
 						tableInsert(tokens, newTokenAt({type="pp_entry",    value="!!", representation="!!", double=true}, ppKeywordTok))
 						tableInsert(tokens, newTokenAt({type="punctuation", value="(",  representation="("              }, ppKeywordTok))
@@ -1901,14 +1956,6 @@ local function doExpansions(tokensRaw, fileBuffers, params, stats)
 
 							if not tok then
 								errorAtToken(fileBuffers, tableStartTok, nil, "Macro", "Syntax error: Could not find end of table constructor before EOF.")
-
-							-- @Copypaste from above. @Cleanup
-							elseif isToken(tok, "pp_keyword", "file") then
-								local ppKwTokInner = table.remove(tokenStack) -- "@file"
-								tableInsert(argTokens, newTokenAt({type="string", value=ppKwTokInner.file, representation=F("%q",ppKwTokInner.file)}, ppKwTokInner))
-							elseif isToken(tok, "pp_keyword", "line") then
-								local ppKwTokInner = table.remove(tokenStack) -- "@line"
-								tableInsert(argTokens, newTokenAt({type="number", value=ppKwTokInner.line, representation=F("%d",ppKwTokInner.line)}, ppKwTokInner))
 
 							elseif tok.type:find"^pp_" then
 								errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starting %s)", getRelativeLocationText(ppKeywordTok, tok))
@@ -1987,14 +2034,6 @@ local function doExpansions(tokensRaw, fileBuffers, params, stats)
 
 									if not tok then
 										errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
-
-									-- @Copypaste from above. @Cleanup
-									elseif isToken(tok, "pp_keyword", "file") then
-										local ppKwTokInner = table.remove(tokenStack) -- "@file"
-										tableInsert(argTokens, newTokenAt({type="string", value=ppKwTokInner.file, representation=F("%q",ppKwTokInner.file)}, ppKwTokInner))
-									elseif isToken(tok, "pp_keyword", "line") then
-										local ppKwTokInner = table.remove(tokenStack) -- "@line"
-										tableInsert(argTokens, newTokenAt({type="number", value=ppKwTokInner.line, representation=F("%d",ppKwTokInner.line)}, ppKwTokInner))
 
 									elseif tok.type:find"^pp_" then
 										errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starting %s)", getRelativeLocationText(ppKeywordTok, tok))
@@ -2084,19 +2123,12 @@ local function doExpansions(tokensRaw, fileBuffers, params, stats)
 					end
 
 				else
-					assert(false)
+					errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", tokNext.type)
 				end
 
 			else
 				errorAtToken(fileBuffers, ppKeywordTok, ppKeywordTok.position+1, "Parser", "Unknown preprocessor keyword '%s'.", ppKeywordTok.value)
 			end
-
-		-- Backtick string.
-		elseif isToken(tok, "string") and tok.representation:find"^`" then
-			tok.representation = F("%q", tok.value)
-
-			tableInsert(tokens, tok)
-			table.remove(tokenStack)
 
 		-- Anything else.
 		else
@@ -2146,23 +2178,23 @@ local function _processFileOrString(params, isFile)
 		luaUnprocessed = rest
 	end
 
-	local tokensRaw = _tokenize(luaUnprocessed, pathIn, true, params.backtickStrings, params.jitSyntax)
-	-- printTokens(tokensRaw)
+	local tokens = _tokenize(luaUnprocessed, pathIn, true, params.backtickStrings, params.jitSyntax)
+	-- printTokens(tokens)
 
 	-- Info variables.
-	local lastTok = tokensRaw[#tokensRaw]
+	local lastTok = tokens[#tokens]
 
 	local stats = {
 		processedByteCount  = #luaUnprocessed,
 		lineCount           = (specialFirstLine and 1 or 0) + (lastTok and lastTok.line + countString(lastTok.representation, "\n", true) or 0),
-		lineCountCode       = getLineCountWithCode(tokensRaw),
+		lineCountCode       = getLineCountWithCode(tokens),
 		tokenCount          = 0, -- Set later.
 		hasPreprocessorCode = false,
 		hasMetaprogram      = false,
 		insertedNames       = {},
 	}
 
-	for _, tok in ipairs(tokensRaw) do
+	for _, tok in ipairs(tokens) do
 		if isToken(tok, "pp_entry") or isToken(tok, "pp_keyword", "insert") then
 			stats.hasPreprocessorCode = true
 			stats.hasMetaprogram      = true
@@ -2173,7 +2205,8 @@ local function _processFileOrString(params, isFile)
 		end
 	end
 
-	local tokens     = doExpansions(tokensRaw, fileBuffers, params, stats) -- Tokens for constructing the metaprogram.
+	tokens           = doEarlyExpansions(tokens, fileBuffers, params, stats)
+	tokens           = doLateExpansions (tokens, fileBuffers, params, stats)
 	stats.tokenCount = #tokens
 
 	-- Generate metaprogram.

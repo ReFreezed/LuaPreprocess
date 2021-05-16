@@ -118,9 +118,12 @@ local ok = 1==1
 local s = @insert PASS_THROUGH "foo"
 local t = @@      PASS_THROUGH { 496, b=true } -- @@func() means the same as @insert func().
 
+-- local s = @insert PASS_THROUGH `foo`
+
 local f = @insert PASS_THROUGH(function(a, b)
 	while true do
 		repeat until arePlanetsAligned("mars", "jupiter")
+		-- repeat until arePlanetsAligned(`mars`, `jupiter`)
 		break
 	end
 	return "", nil

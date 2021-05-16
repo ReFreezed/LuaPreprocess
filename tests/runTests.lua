@@ -226,6 +226,12 @@ doTest("Preprocessor keywords", function()
 	]]})
 	assertCodeOutput(luaOut, [[s = ""]])
 
+	local luaOut = assert(pp.processString{ backtickStrings=true, code=[[
+		!function echo(v)  return v  end
+		s = @insert echo``
+	]]})
+	assertCodeOutput(luaOut, [[s = ""]])
+
 	local luaOut = assert(pp.processString{ code=[[
 		!function echo(v)  return v  end
 		t = @insert echo{}
@@ -237,6 +243,12 @@ doTest("Preprocessor keywords", function()
 		f = @insert echo(function() return a,b end)
 	]]})
 	assertCodeOutput(luaOut, [[f = function() return a,b end]])
+
+	local luaOut = assert(pp.processString{ backtickStrings=true, code=[[
+		!function echo(v)  return v  end
+		f = @insert echo(function() return a,`b` end)
+	]]})
+	assertCodeOutput(luaOut, [[f = function() return a,"b" end]])
 
 	-- Invalid: Ambiguous syntax.
 	local luaOut = pp.processString{ code=[[
@@ -272,12 +284,13 @@ doTest("Serialize", function()
 	local pp = assert(loadfile"preprocess.lua")()
 
 	local t = {
-		z = 99,
-		a = 2,
+		z     = 99,
+		a     = 2,
+		["f"] = 176,
 	}
 
 	local luaOut = assert(pp.toLua(t))
-	assertCodeOutput(luaOut, [[{a=2,z=99}]]) -- Note: Table keys should be sorted.
+	assertCodeOutput(luaOut, [[{a=2,f=176,z=99}]]) -- Note: Table keys should be sorted.
 end)
 
 
@@ -354,9 +367,9 @@ end
 
 print()
 if countFails == 0 then
-	print("All "..countResults.." tests passed!")
+	print("All "..countResults.." tests passed! :)")
 else
-	print(countFails.."/"..countResults.." tests FAILED!!!")
+	print(countFails.."/"..countResults.." tests FAILED!!! :O")
 end
 
 os.exit(countFails == 0 and 0 or 1)
