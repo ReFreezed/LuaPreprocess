@@ -3,4 +3,4 @@ CD /D "%~dp0.."
 
 IF NOT EXIST local  MD local
 
-lua tests/runTests.lua
+lua tests/suite.lua

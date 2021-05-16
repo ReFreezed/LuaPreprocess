@@ -2578,7 +2578,7 @@ local function _processFileOrString(params, isFile)
 
 	local main_chunk, err = loadLuaString(luaMeta, "@"..metaPathForErrorMessages, metaEnv)
 	if not main_chunk then
-		local ln, _err = err:match'^.-:(%d+): (.*)'
+		local ln, _err = err:match"^.-:(%d+): (.*)"
 		errorOnLine(metaPathForErrorMessages, (tonumber(ln) or 0), nil, "%s", (_err or err))
 	end
 
@@ -2631,7 +2631,7 @@ local function _processFileOrString(params, isFile)
 		local chunk, err = loadLuaString(luaToCheck, "@"..pathOut)
 
 		if not chunk then
-			local ln, _err = err:match'^.-:(%d+): (.*)'
+			local ln, _err = err:match"^.-:(%d+): (.*)"
 			errorOnLine(pathOut, (tonumber(ln) or 0), nil, "%s", (_err or err))
 		end
 	end
