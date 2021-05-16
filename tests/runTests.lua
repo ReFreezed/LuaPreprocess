@@ -288,7 +288,7 @@ doTest("Simple processing of single file", function()
 	assert(writeFile("local/generatedTest.lua2p", [[
 		!outputLua("math.floor(1.5)")
 	]]))
-	assertCmd([[lua preprocess-cl.lua local/generatedTest.lua2p]])
+	assertCmd([[lua ./preprocess-cl.lua local/generatedTest.lua2p]])
 
 	local luaOut = assert(readFile("local/generatedTest.lua"))
 	assertCodeOutput(luaOut, [[math.floor(1.5)]])
@@ -298,7 +298,7 @@ doTest("Send data", function()
 	assert(writeFile("local/generatedTest.lua2p", [[
 		print(!(dataFromCommandLine))
 	]]))
-	assertCmd([[lua preprocess-cl.lua --outputpaths --data="Hello, world!" local/generatedTest.lua2p local/generatedTest.lua]])
+	assertCmd([[lua ./preprocess-cl.lua --outputpaths --data="Hello, world!" local/generatedTest.lua2p local/generatedTest.lua]])
 
 	local luaOut = assert(readFile("local/generatedTest.lua"))
 	assertCodeOutput(luaOut, [[print("Hello, world!")]])
@@ -317,7 +317,7 @@ doTest("Handler + multiple files", function()
 	assert(writeFile("local/generatedTest1.lua2p", "!!local x = one+2*3\n"))
 	assert(writeFile("local/generatedTest2.lua2p", "!!local y = one+2^10\n"))
 
-	assertCmd([[lua preprocess-cl.lua --handler=local/generatedHandler.lua local/generatedTest1.lua2p local/generatedTest2.lua2p]])
+	assertCmd([[lua ./preprocess-cl.lua --handler=local/generatedHandler.lua local/generatedTest1.lua2p local/generatedTest2.lua2p]])
 
 	local luaOut = assert(readFile("local/generatedTest1.lua"))
 	assertCodeOutput(luaOut, [[print("foo");local x = 7]])

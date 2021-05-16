@@ -4,7 +4,7 @@
 -- Preprocessor line.
 
 local a = "a" -- Comment A.
-print(a)
+print("a", a)
 
 -- More preprocessor lines.
 
@@ -18,6 +18,12 @@ print(4)
 
 print("Aaaaand...")
 print(6)
+
+print"Get wrapped! Also, dogs..."
+
+print"Get wrapped! Also, clouds..."
+
+local data = 'a\n1Ü2"\n\0003'
 
 
 
@@ -80,4 +86,17 @@ end
 
 -- Misc.
 print("dataFromCommandLine: Hello, world!")
+print("This file and line: tests/quickTest.lua2p:133")
+
+for i = 1, 3 do
+	do
+		break
+	end
+	break
+end
+
+local HUGE_POSITIVE = (1/0)
+local HUGE_NEGATIVE = (-1/0)
+local NAN           = (0/0)
+
 print("The end.")

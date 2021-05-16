@@ -5,11 +5,11 @@
 !print("The beginning.")
 
 local a = "a" -- Comment A.
-print(a)
+print("a", a)
 
 -- More preprocessor lines.
 !local b = "b" -- Comment B.
-!print(b)
+!print("b", b)
 
 a = a..!(b)..a -- Comment, string concat.
 
@@ -27,6 +27,8 @@ comment here...]] true
 !end
 !wrapped("dogs")
 !wrapped("clouds")
+
+local data = !("a\n1Ü2\"\10\0003")
 
 
 

@@ -6,7 +6,7 @@ SET _fails=0
 
 FOR /R examples %%G IN (*.lua2p) DO (
 	ECHO. & ECHO Processing example '%%~nxG'...
-	lua preprocess-cl.lua "%%G" --debug --silent
+	lua ./preprocess-cl.lua "%%G" --debug --silent
 	IF !ERRORLEVEL! EQU 0 ( lua "%%~dpnG.lua" ) ELSE ( SET /A "_fails=!_fails!+1" )
 )
 

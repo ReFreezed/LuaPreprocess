@@ -144,7 +144,7 @@ local PUNCTUATION = {
 	"//", "&",  "|",  "~",  ">>", "<<",
 } for i, v in ipairs(PUNCTUATION) do  PUNCTUATION[v], PUNCTUATION[i] = true, nil  end
 
-local ESCAPE_SEQUENCES = {
+local ESCAPE_SEQUENCES_EXCEPT_QUOTES = {
 	["\a"] = [[\a]],
 	["\b"] = [[\b]],
 	["\f"] = [[\f]],
@@ -153,9 +153,11 @@ local ESCAPE_SEQUENCES = {
 	["\t"] = [[\t]],
 	["\v"] = [[\v]],
 	["\\"] = [[\\]],
+}
+local ESCAPE_SEQUENCES = {
 	["\""] = [[\"]],
 	["\'"] = [[\']],
-}
+} for k, v in pairs(ESCAPE_SEQUENCES_EXCEPT_QUOTES) do  ESCAPE_SEQUENCES[k] = v  end
 
 local USELESS_TOKENS = {whitespace=true, comment=true}
 
@@ -185,6 +187,7 @@ local currentPathOut           = ""
 local metaPathForErrorMessages = ""
 local outputFromMeta           = nil
 local canOutputNil             = true
+local fastStrings              = false
 
 
 
@@ -215,6 +218,7 @@ local pack, unpack
 local printf, printTokens, printError, printfError, printErrorTraceback
 local serialize, toLua
 local tableInsert, tableInsertFormat
+local utf8GetCharLength, utf8GetCodepointAndLength
 
 
 
@@ -438,14 +442,14 @@ end
 
 
 
-local NUM_HEX_FRAC_EXP = ("^( 0[Xx] ([%dA-Fa-f]*) %.([%dA-Fa-f]+) [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
-local NUM_HEX_FRAC     = ("^( 0[Xx] ([%dA-Fa-f]*) %.([%dA-Fa-f]+)                        )"):gsub(" +", "")
-local NUM_HEX_EXP      = ("^( 0[Xx] ([%dA-Fa-f]+) %.?             [Pp]([-+]?[%dA-Fa-f]+) )"):gsub(" +", "")
-local NUM_HEX          = ("^( 0[Xx]  [%dA-Fa-f]+  %.?                                    )"):gsub(" +", "")
-local NUM_DEC_FRAC_EXP = ("^(        %d*          %.%d+           [Ee][-+]?%d+           )"):gsub(" +", "")
-local NUM_DEC_FRAC     = ("^(        %d*          %.%d+                                  )"):gsub(" +", "")
-local NUM_DEC_EXP      = ("^(        %d+          %.?             [Ee][-+]?%d+           )"):gsub(" +", "")
-local NUM_DEC          = ("^(        %d+          %.?                                    )"):gsub(" +", "")
+local NUM_HEX_FRAC_EXP = ("^( 0[Xx] (%x*) %.(%x+) [Pp]([-+]?%x+) )"):gsub(" +", "")
+local NUM_HEX_FRAC     = ("^( 0[Xx] (%x*) %.(%x+)                )"):gsub(" +", "")
+local NUM_HEX_EXP      = ("^( 0[Xx] (%x+) %.?     [Pp]([-+]?%x+) )"):gsub(" +", "")
+local NUM_HEX          = ("^( 0[Xx]  %x+  %.?                    )"):gsub(" +", "")
+local NUM_DEC_FRAC_EXP = ("^(        %d*  %.%d+   [Ee][-+]?%d+   )"):gsub(" +", "")
+local NUM_DEC_FRAC     = ("^(        %d*  %.%d+                  )"):gsub(" +", "")
+local NUM_DEC_EXP      = ("^(        %d+  %.?     [Ee][-+]?%d+   )"):gsub(" +", "")
+local NUM_DEC          = ("^(        %d+  %.?                    )"):gsub(" +", "")
 
 -- tokens = _tokenize( luaString, path, allowPreprocessorTokens, allowBacktickStrings, allowJitSyntax )
 function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
@@ -836,6 +840,46 @@ end
 
 
 
+local UNICODE_RANGES_NOT_TO_ESCAPE = {
+	{from=32, to=126},
+	{from=161, to=591},
+	{from=880, to=887},
+	{from=890, to=895},
+	{from=900, to=906},
+	{from=908, to=908},
+	{from=910, to=929},
+	{from=931, to=1154},
+	{from=1162, to=1279},
+	{from=7682, to=7683},
+	{from=7690, to=7691},
+	{from=7710, to=7711},
+	{from=7744, to=7745},
+	{from=7766, to=7767},
+	{from=7776, to=7777},
+	{from=7786, to=7787},
+	{from=7808, to=7813},
+	{from=7835, to=7835},
+	{from=7922, to=7923},
+	{from=8211, to=8213},
+	{from=8215, to=8222},
+	{from=8224, to=8226},
+	{from=8230, to=8230},
+	{from=8240, to=8240},
+	{from=8242, to=8243},
+	{from=8249, to=8250},
+	{from=8252, to=8252},
+	{from=8254, to=8254},
+	{from=8260, to=8260},
+	{from=8266, to=8266},
+}
+
+local function shouldCodepointBeEscaped(cp)
+	for _, range in ipairs(UNICODE_RANGES_NOT_TO_ESCAPE) do -- @Speed: Don't use a loop?
+		if cp >= range.from and cp <= range.to then  return false  end
+	end
+	return true
+end
+
 -- success, error = serialize( buffer, value )
 function serialize(buffer, v)
 	local vType = type(v)
@@ -896,16 +940,64 @@ function serialize(buffer, v)
 		tableInsert(buffer, "}")
 
 	elseif vType == "string" then
-		-- @Incomplete: Add an option specifically for nice string serialization?
-		local s = v:gsub("[%c\128-\255\"\\]", function(c)
-			local str           = ESCAPE_SEQUENCES[c] or F("\\%03d", c:byte())
-			ESCAPE_SEQUENCES[c] = str
-			return str
-		end)
+		if v == "" then
+			tableInsert(buffer, '""')
 
-		tableInsert(buffer, '"')
-		tableInsert(buffer, s)
-		tableInsert(buffer, '"')
+		elseif fastStrings or not v:find"[^\32-\126\t\n]" then
+			-- print(">> FAST", #v) -- DEBUG
+
+			local s = v:gsub("[%c\128-\255\"\\]", function(c)
+				local s             = ESCAPE_SEQUENCES[c] or F("\\%03d", c:byte())
+				ESCAPE_SEQUENCES[c] = s -- Cache the result.
+				return s
+			end)
+
+			tableInsert(buffer, '"')
+			tableInsert(buffer, s)
+			tableInsert(buffer, '"')
+
+		else
+			-- print(">> SLOW", #v) -- DEBUG
+
+			local quote      = (v:find('"', 1, true) and not v:find("'", 1, true)) and "'" or '"'
+			local pos        = 1
+			local toMinimize = {}
+
+			tableInsert(buffer, quote)
+
+			-- @Speed: There are optimizations to be made here!
+			while pos <= #v do
+				local c       = v:sub(pos, pos)
+				local cp, len = utf8GetCodepointAndLength(v, pos)
+
+				-- Named escape sequences.
+				if ESCAPE_SEQUENCES_EXCEPT_QUOTES[c] then  tableInsert(buffer, ESCAPE_SEQUENCES_EXCEPT_QUOTES[c])  ; pos = pos+1
+				elseif c == quote                    then  tableInsert(buffer, [[\]]) ; tableInsert(buffer, quote) ; pos = pos+1
+
+				-- UTF-8 character.
+				elseif len == 1 and not shouldCodepointBeEscaped(cp) then  tableInsert(buffer, v:sub(pos, pos  )) ; pos = pos+1 -- @Speed: We can insert multiple single-byte characters sometimes!
+				elseif len == 2 and not shouldCodepointBeEscaped(cp) then  tableInsert(buffer, v:sub(pos, pos+1)) ; pos = pos+2
+				elseif len == 3 and not shouldCodepointBeEscaped(cp) then  tableInsert(buffer, v:sub(pos, pos+2)) ; pos = pos+3
+				elseif len == 4 and not shouldCodepointBeEscaped(cp) then  tableInsert(buffer, v:sub(pos, pos+3)) ; pos = pos+4
+
+				-- Anything else.
+				else
+					local b = v:byte(pos)
+					tableInsert(buffer, F("\\%03d", b))
+					if b <= 99 then  tableInsert(toMinimize, #buffer)  end
+					pos = pos+1
+				end
+			end
+
+			-- Minimize \nnn sequences that aren't followed by digits.
+			for _, i in ipairs(toMinimize) do
+				if not (buffer[i+1] and buffer[i+1]:find"^%d") then
+					buffer[i] = buffer[i]:gsub("0+(%d+)", "%1")
+				end
+			end
+
+			tableInsert(buffer, quote)
+		end
 
 	elseif v == 1/0 then
 		tableInsert(buffer, "(1/0)")
@@ -1134,6 +1226,56 @@ tableInsert = table.insert
 
 function tableInsertFormat(t, s, ...)
 	tableInsert(t, s:format(...))
+end
+
+
+
+-- length|nil = utf8GetCharLength( string [, position=1 ] )
+function utf8GetCharLength(s, pos)
+	pos                  = pos or 1
+	local b1, b2, b3, b4 = s:byte(pos, pos+3)
+
+	if b1 > 0 and b1 <= 127 then
+		return 1
+
+	elseif b1 >= 194 and b1 <= 223 then
+		if not b2               then  return nil  end -- UTF-8 string terminated early.
+		if b2 < 128 or b2 > 191 then  return nil  end -- Invalid UTF-8 character.
+		return 2
+
+	elseif b1 >= 224 and b1 <= 239 then
+		if not b3                               then  return nil  end -- UTF-8 string terminated early.
+		if b1 == 224 and (b2 < 160 or b2 > 191) then  return nil  end -- Invalid UTF-8 character.
+		if b1 == 237 and (b2 < 128 or b2 > 159) then  return nil  end -- Invalid UTF-8 character.
+		if               (b2 < 128 or b2 > 191) then  return nil  end -- Invalid UTF-8 character.
+		if               (b3 < 128 or b3 > 191) then  return nil  end -- Invalid UTF-8 character.
+		return 3
+
+	elseif b1 >= 240 and b1 <= 244 then
+		if not b4                               then  return nil  end -- UTF-8 string terminated early.
+		if b1 == 240 and (b2 < 144 or b2 > 191) then  return nil  end -- Invalid UTF-8 character.
+		if b1 == 244 and (b2 < 128 or b2 > 143) then  return nil  end -- Invalid UTF-8 character.
+		if               (b2 < 128 or b2 > 191) then  return nil  end -- Invalid UTF-8 character.
+		if               (b3 < 128 or b3 > 191) then  return nil  end -- Invalid UTF-8 character.
+		if               (b4 < 128 or b4 > 191) then  return nil  end -- Invalid UTF-8 character.
+		return 4
+	end
+
+	return nil -- Invalid UTF-8 character.
+end
+
+-- codepoint, length = utf8GetCodepointAndLength( string [, position=1 ] )
+-- Returns nil if the text is invalid at the position.
+function utf8GetCodepointAndLength(s, pos)
+	pos       = pos or 1
+	local len = utf8GetCharLength(s, pos)
+	if not len then  return nil  end
+
+	-- 2^6=64, 2^12=4096, 2^18=262144
+	if len == 1 then                                              return                                              s:byte(pos), len  end
+	if len == 2 then  local b1, b2         = s:byte(pos, pos+1) ; return                                   (b1-192)*64 + (b2-128), len  end
+	if len == 3 then  local b1, b2, b3     = s:byte(pos, pos+2) ; return                   (b1-224)*4096 + (b2-128)*64 + (b3-128), len  end
+	do                local b1, b2, b3, b4 = s:byte(pos, pos+3) ; return (b1-240)*262144 + (b2-128)*4096 + (b3-128)*64 + (b4-128), len  end
 end
 
 
@@ -2362,6 +2504,7 @@ local function _processFileOrString(params, isFile)
 	metaPathForErrorMessages = params.pathMeta or "<meta>"
 	outputFromMeta           = {}
 	canOutputNil             = params.canOutputNil ~= false
+	fastStrings              = params.fastStrings
 
 	if params.pathMeta then
 		local file = assert(io.open(params.pathMeta, "wb"))
@@ -2446,6 +2589,7 @@ local function _processFileOrString(params, isFile)
 
 	currentPathIn  = ""
 	currentPathOut = ""
+	fastStrings    = false
 
 	if isFile then
 		return info
@@ -2495,6 +2639,7 @@ local function processFileOrString(params, isFile)
 	metaPathForErrorMessages = ""
 	outputFromMeta           = nil
 	canOutputNil             = true
+	fastStrings              = false
 
 	if xpcallOk then
 		return unpack(returnValues, 1, returnValues.n)
@@ -2532,14 +2677,15 @@ local pp = {
 	-- params: Table with these fields:
 	--   pathIn          = pathToInputFile       -- [Required]
 	--   pathOut         = pathToOutputFile      -- [Required]
-	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error occurs in the metaprogram.
 	--
-	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
-	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
+	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
+	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)  @Doc
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
@@ -2557,14 +2703,15 @@ local pp = {
 	--
 	-- params: Table with these fields:
 	--   code            = luaString             -- [Required]
-	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error ocurrs in the metaprogram.
+	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error occurs in the metaprogram.
 	--
-	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
 	--
 	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
-	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
 	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
+	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
+	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)  @Doc
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.

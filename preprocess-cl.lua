@@ -38,6 +38,10 @@ exec lua "$0" "$@"
 			processed files (and any message handler). Otherwise,
 			'dataFromCommandLine' is nil.
 
+		--faststrings
+			Force fast serialization of string values. (Non-ASCII characters
+			will look ugly.)
+
 		--handler|-h=pathToMessageHandler
 			Path to a Lua file that's expected to return a function or a
 			table of functions. If it returns a function then it will be
@@ -165,6 +169,7 @@ local allowBacktickStrings = false
 local allowJitSyntax       = false
 local canOutputNil         = true
 local customData           = nil
+local fastStrings          = false
 local hasOutputExtension   = false
 local hasOutputPaths       = false
 local isDebug              = false
@@ -308,6 +313,9 @@ for _, arg in ipairs(args) do
 
 	elseif arg == "--silent" then
 		silent = true
+
+	elseif arg == "--faststrings" then -- @Doc
+		fastStrings = true
 
 	else
 		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
@@ -460,8 +468,9 @@ for i, pathIn in ipairs(pathsIn) do
 		addLineNumbers  = addLineNumbers,
 
 		backtickStrings = allowBacktickStrings,
-		canOutputNil    = canOutputNil,
 		jitSyntax       = allowJitSyntax,
+		canOutputNil    = canOutputNil,
+		fastStrings     = fastStrings,
 		validate        = validate,
 
 		onInsert = (hasMessageHandler("insert") or nil) and function(name)
