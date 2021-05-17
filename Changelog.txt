@@ -3,7 +3,7 @@ LuaPreprocess
 
 v1.13.1 (2021-05-16)
 Library:
-- Dual code now supports multiple identifiers: !!x, y = ...
+- Dual code now supports multiple assignment targets: !!x, y = ...
 - Some non-ASCII characters in serialized strings look nicer.
 - Added params.fastStrings .
 - Fixed backtick strings not working in macros.

@@ -23,7 +23,7 @@ print"Get wrapped! Also, dogs..."
 
 print"Get wrapped! Also, clouds..."
 
-local data = 'a\n1Ü2"\n\0003'
+local data = 'a\n1Ü2"\n\255\255\0003'
 
 
 

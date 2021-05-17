@@ -1,7 +1,16 @@
+--
 -- Unicode characters not to encode with escape sequences in strings.
--- https://en.wikipedia.org/wiki/List_of_Unicode_characters
+-- Updated: 2021-05-17
+--
 
+-- U+1234  = include
+-- !U+1234 = exclude
+-- U+1x3x  = 'x' means range between 0 and F
 local codepointsStr = [[
+
+Source: https://en.wikipedia.org/wiki/List_of_Unicode_characters
+----------------------------------------------------------------
+
 Basic Latin
 U+0020 (space)
 U+0021 !
@@ -974,17 +983,268 @@ U+203C ‼
 U+203E ‾
 U+2044 ⁄
 U+204A ⁊
+
+Source: https://en.wikipedia.org/wiki/Unicode_block
+----------------------------------------------------------------
+
+General Punctuation
+U+201x !U+2011
+U+2020 U+2021 U+2022 U+2023 U+2024 U+2025 U+2026 U+2027
+U+203x
+U+204x
+U+205x !U+205F
+
+Superscripts and Subscripts
+U+207x !U+2072 !U+2073
+U+208x !U+208F
+U+209x !U+209D !U+209E !U+209F
+
+Currency Symbols
+U+20Ax
+U+20Bx
+
+Letterlike Symbols
+U+210x
+U+211x
+U+212x
+U+213x
+U+214x
+
+Number Forms
+U+215x
+U+216x
+U+217x
+U+218x !U+218C !U+218D !U+218E !U+218F
+
+Arrows
+U+219x
+U+21Ax
+U+21Bx
+U+21Cx
+U+21Dx
+U+21Ex
+U+21Fx
+
+Mathematical Operators
+U+220x
+U+221x
+U+222x
+U+223x
+U+224x
+U+225x
+U+226x
+U+227x
+U+228x
+U+229x
+U+22Ax
+U+22Bx
+U+22Cx
+U+22Dx
+U+22Ex
+U+22Fx
+
+Miscellaneous Technical
+U+230x
+U+231x
+U+232x
+U+233x
+U+234x
+U+235x
+U+236x
+U+237x
+U+238x
+U+239x
+U+23Ax
+U+23Bx
+U+23Cx
+U+23Dx
+U+23Ex
+U+23Fx
+
+Control Pictures
+U+240x
+U+241x
+U+2420 U+2421 U+2422 U+2423 U+2424 U+2425 U+2426
+
+Enclosed Alphanumerics
+U+246x
+U+247x
+U+248x
+U+249x
+U+24Ax
+U+24Bx
+U+24Cx
+U+24Dx
+U+24Ex
+U+24Fx
+
+Box Drawing
+U+250x
+U+251x
+U+252x
+U+253x
+U+254x
+U+255x
+U+256x
+U+257x
+
+Block Elements
+U+258x
+U+259x
+
+Geometric Shapes
+U+25Ax
+U+25Bx
+U+25Cx
+U+25Dx
+U+25Ex
+U+25Fx
+
+Miscellaneous Symbols
+U+260x
+U+261x
+U+262x
+U+263x
+U+264x
+U+265x
+U+266x
+U+267x
+U+268x
+U+269x
+U+26Ax
+U+26Bx
+U+26Cx
+U+26Dx
+U+26Ex
+U+26Fx
+
+Dingbats
+U+270x
+U+271x
+U+272x
+U+273x
+U+274x
+U+275x
+U+276x
+U+277x
+U+278x
+U+279x
+U+27Ax
+U+27Bx
+
+Miscellaneous Mathematical Symbols-A
+U+27Cx
+U+27Dx
+U+27Ex
+
+Supplemental Arrows-A
+U+27Fx
+
+Supplemental Arrows-B
+U+290x
+U+291x
+U+292x
+U+293x
+U+294x
+U+295x
+U+296x
+U+297x
+
+Miscellaneous Mathematical Symbols-B
+U+298x
+U+299x
+U+29Ax
+U+29Bx
+U+29Cx
+U+29Dx
+U+29Ex
+U+29Fx
+
+Supplemental Mathematical Operators
+U+2A0x
+U+2A1x
+U+2A2x
+U+2A3x
+U+2A4x
+U+2A5x
+U+2A6x
+U+2A7x
+U+2A8x
+U+2A9x
+U+2AAx
+U+2ABx
+U+2ACx
+U+2ADx
+U+2AEx
+U+2AFx
+
+Alphabetic Presentation Forms
+U+FB00 U+FB01 U+FB02 U+FB03 U+FB04 U+FB05 U+FB06
+
+Mathematical Alphanumeric Symbols
+(some of these seem problematic)
 ]]
 
 local lowest  = 1/0
 local highest = 0
 local cpSet   = {}
 
-for cpHex in codepointsStr:gmatch"U%+0*(%x+)" do
-	local cp  = tonumber(cpHex, 16)
-	lowest    = math.min(lowest,  cp)
-	highest   = math.max(highest, cp)
-	cpSet[cp] = true
+local function eachCodepoint(cpHexPattern)
+	if not cpHexPattern:find"[Xx]" then
+		local cpHex = cpHexPattern
+		local done  = false
+
+		return function()
+			if not done then
+				done = true
+				return tonumber(cpHex, 16)
+			end
+		end
+	end
+
+	-- Every 'x' in the hex number pattern is a variable.
+	local variables = {}
+
+	for _ in cpHexPattern:gmatch"[Xx]" do
+		table.insert(variables, 0)
+	end
+
+	variables[#variables] = -1
+
+	return function()
+		-- Increase the number represented by the variables.
+		for i = #variables, 1, -1 do
+			variables[i] = variables[i] + 1
+			if variables[i] < 16 then  break  end
+			variables[i] = 0
+			if i == 1 then  return  end -- Done!
+		end
+
+		local i = 0
+
+		local cpHex = cpHexPattern:gsub("[Xx]", function()
+			i = i + 1
+			return ("%X"):format(variables[i])
+		end)
+
+		return tonumber(cpHex, 16)
+	end
+end
+
+for ignore, cpHexPattern in codepointsStr:gmatch"(!?)U%+0*([%xXx]+)" do
+	ignore = (ignore == "!")
+
+	for cp in eachCodepoint(cpHexPattern) do
+		if ignore then
+			print(("Ignoring U+%04X"):format(cp))
+		elseif cpSet[cp] then
+			print(("Duplicate U+%04X"):format(cp))
+		end
+
+		lowest    = math.min(lowest,  cp) -- (It's fine if lowest and highest becomes incorrect if ignore is ever true.)
+		highest   = math.max(highest, cp)
+		cpSet[cp] = not ignore
+	end
 end
 
 local ranges     = {}
