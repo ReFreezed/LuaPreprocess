@@ -223,7 +223,7 @@ function printfError(s, ...)
 end
 
 function errorLine(err)
-	printError(tryToFormatError(err))
+	printError(pp.tryToFormatError(err))
 	os.exit(1)
 end
 

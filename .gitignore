@@ -1,3 +1,4 @@
+*.lnk
 local/
 
 /*.sublime-*

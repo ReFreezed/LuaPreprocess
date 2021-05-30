@@ -282,7 +282,7 @@ function printErrorTraceback(message, level)
 			tableInsertFormat(buffer, "%d:", info.currentline)
 		end
 
-		if info.name then
+		if (info.name or "") ~= "" then
 			tableInsertFormat(buffer, " in '%s'", info.name)
 		elseif info.what == "main" then
 			tableInsert(buffer, " in main chunk")
@@ -996,7 +996,7 @@ function serialize(buffer, v)
 			-- Minimize \nnn sequences that aren't followed by digits.
 			for _, i in ipairs(toMinimize) do
 				if not (buffer[i+1] and buffer[i+1]:find"^%d") then
-					buffer[i] = buffer[i]:gsub("0+(%d+)", "%1")
+					buffer[i] = buffer[i]:gsub("0+(%d)", "%1")
 				end
 			end
 
