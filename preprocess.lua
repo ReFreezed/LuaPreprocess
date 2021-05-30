@@ -118,7 +118,7 @@
 
 
 
-local PP_VERSION = "1.13.1"
+local PP_VERSION = "1.13.2"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 

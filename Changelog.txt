@@ -1,6 +1,10 @@
 Changelog
 LuaPreprocess
 
+v1.13.2 (2021-05-30)
+Command line program:
+- Fixed internal error when reporting a user error.
+
 v1.13.1 (2021-05-16)
 Library:
 - Dual code now supports multiple assignment targets: !!x, y = ...
