@@ -189,14 +189,9 @@ doTest("Output values of different types", function()
 
 	-- Invalid: Functions, userdata, coroutines.
 
-	local luaOut = pp.processString{ code=[[ func = !(function()end) ]]}
-	assert(not luaOut)
-
-	local luaOut = pp.processString{ code=[[ file = !(io.stdout) ]]}
-	assert(not luaOut)
-
-	local luaOut = pp.processString{ code=[[ co = !(coroutine.create(function()end)) ]]}
-	assert(not luaOut)
+	assert(not pp.processString{ code=[[ func = !(function()end)                   ]]})
+	assert(not pp.processString{ code=[[ file = !(io.stdout)                       ]]})
+	assert(not pp.processString{ code=[[ co   = !(coroutine.create(function()end)) ]]})
 end)
 
 doTest("Preprocessor keywords", function()
@@ -206,7 +201,10 @@ doTest("Preprocessor keywords", function()
 	assertCodeOutput(luaOut, [[filename = "<code>"]]) -- Note: The dummy value when we have no real path may change in the future.
 
 	local luaOut = assert(pp.processString{ code=[[ ln = @line ]]})
-	assertCodeOutput(luaOut, [[ln = 1]])
+	assertCodeOutput(luaOut, [[ln =  1]])
+
+	local luaOut = assert(pp.processString{ code=[[ lnStr = @file..@line..@line..@file ]]})
+	assertCodeOutput(luaOut, [[lnStr = "<code>".. 1 .. 1 .."<code>"]])
 
 	local luaOut = assert(pp.processString{
 		code = [[
@@ -254,13 +252,15 @@ doTest("Preprocessor keywords", function()
 	]]})
 	assertCodeOutput(luaOut, [[f = function() return a,"b" end]])
 
+	-- Invalid: Bad keyword.
+	assert(not pp.processString{ code=[[ @bad ]]})
+
 	-- Invalid: Ambiguous syntax.
-	local luaOut = pp.processString{ code=[[
+	assert(not pp.processString{ code=[[
 		!function void()  return ""  end
 		v = @insert void
 		()
-	]]}
-	assert(not luaOut)
+	]]})
 end)
 
 

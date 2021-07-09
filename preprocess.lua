@@ -720,6 +720,8 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 				local i1, i2, repr, word = s:find("^(@([%a_][%w_]*))", ptr)
 				if not i1 then
 					errorInFile(s, path, ptr+1, "Tokenizer", "Expected an identifier.")
+				elseif not PREPROCESSOR_KEYWORDS[word] then
+					errorInFile(s, path, ptr+1, "Tokenizer", "Invalid preprocessor keyword '%s'.", word)
 				end
 				ptr = i2+1
 				tok = {type="pp_keyword", representation=repr, value=word}
@@ -1806,7 +1808,7 @@ local function doEarlyExpansions(tokensToExpand, fileBuffers, params, stats)
 				tableInsert(tokens, newTokenAt({type="string", value=ppKeywordTok.file, representation=F("%q",ppKeywordTok.file)}, ppKeywordTok))
 			elseif ppKeywordTok.value == "line" then
 				table.remove(tokenStack) -- "@line"
-				tableInsert(tokens, newTokenAt({type="number", value=ppKeywordTok.line, representation=F("%d",ppKeywordTok.line)}, ppKeywordTok))
+				tableInsert(tokens, newTokenAt({type="number", value=ppKeywordTok.line, representation=F(" %d ",ppKeywordTok.line)}, ppKeywordTok)) -- Is it fine for the representation to have spaces? Probably.
 
 			else
 				-- Expand later.
@@ -1969,7 +1971,7 @@ local function doLateExpansions(tokensToExpand, fileBuffers, params, stats)
 								errorAtToken(fileBuffers, tableStartTok, nil, "Macro", "Syntax error: Could not find end of table constructor before EOF.")
 
 							elseif tok.type:find"^pp_" then
-								errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
+								errorAtToken(fileBuffers, tok, nil, "Macro", "Non-simple preprocessor code not supported in macros. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
 
 							elseif bracketDepth == 1 and isToken(tok, "punctuation", "}") then
 								tableInsert(argTokens, table.remove(tokenStack))
@@ -2047,7 +2049,7 @@ local function doLateExpansions(tokensToExpand, fileBuffers, params, stats)
 										errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
 
 									elseif tok.type:find"^pp_" then
-										errorAtToken(fileBuffers, tok, nil, "Macro", "Preprocessor code not supported in macros. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
+										errorAtToken(fileBuffers, tok, nil, "Macro", "Non-simple preprocessor code not supported in macros. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
 
 									elseif not depthStack[1] and (isToken(tok, "punctuation", ",") or isToken(tok, "punctuation", ")")) then
 										break
@@ -2138,7 +2140,7 @@ local function doLateExpansions(tokensToExpand, fileBuffers, params, stats)
 				end
 
 			else
-				errorAtToken(fileBuffers, ppKeywordTok, ppKeywordTok.position+1, "Parser", "Unknown preprocessor keyword '%s'.", ppKeywordTok.value)
+				errorAtToken(fileBuffers, ppKeywordTok, nil, "Macro", "Internal error. (%s)", ppKeywordTok.value)
 			end
 
 		-- Anything else.
