@@ -79,17 +79,17 @@ print(s:match(funcCall)) -- "hello5( foo )"
 @insert "tests/quickTest.luapart"
 print("Metaprogram - someString: "..someString)
 )
-local uhh = !(@insert"tests/quickTest.txt")
-print("Final program - uhh: "..uhh)
+local uhh1 = !(@insert"tests/quickTest.txt")
+local uhh2 = !(@@"tests/quickTest.txt") -- @@ means the same as @insert.
+print("Final program - uhh: "..uhh1..", "..uhh2)
 
 
 
 -- Macros.
 !local function BLARGH()  return 'print("Blargh!")'  end
 @insert BLARGH()
--- !@insert BLARGH() -- Error: Preprocessor token inside metaprogram.
--- @insert BLARGH( @insert BLARGH() ) -- Error: Preprocessor code not supported in macros.
--- @insert BLARGH(function() return 1,2 end) -- Syntax error! Caused by the comma in the return statement. (This would work if the preprocessor was smarter.)
+-- !@insert BLARGH() -- Error: Macro inside metaprogram.
+-- @insert BLARGH( @insert BLARGH() ) -- Error: Nested macros. (This could be supported e.g. if we parsed macros from right to left.)
 
 !local function WHERE(filename, ln)  return "print(string.format('We are at %s:%d!', "..filename..", "..ln.."))"  end
 @insert WHERE(@file, @line)
@@ -116,11 +116,11 @@ local ok = 1==1
 
 !local function PASS_THROUGH(lua)  return lua  end
 local s = @insert PASS_THROUGH "foo"
-local t = @@      PASS_THROUGH { 496, b=true } -- @@func() means the same as @insert func().
+local t = @@      PASS_THROUGH { 496, b=true } -- @@ means the same as @insert.
 
--- local s = @insert PASS_THROUGH `foo`
+-- local s = @@PASS_THROUGH `foo`
 
-local f = @insert PASS_THROUGH(function(a, b)
+local f = @@PASS_THROUGH(function(a, b)
 	while true do
 		repeat until arePlanetsAligned("mars", "jupiter")
 		-- repeat until arePlanetsAligned(`mars`, `jupiter`)
@@ -130,11 +130,22 @@ local f = @insert PASS_THROUGH(function(a, b)
 end)
 
 local x = @@PASS_THROUGH( @@"tests/quickTest.txt" )
--- local y = @@PASS_THROUGH( 1 + !!( "3" ) * 8 )
--- local z = @@PASS_THROUGH( 1 + !(   3  ) * 8 )
+local y = @@PASS_THROUGH( 1 + !!( "3" ) * 8 )
+local z = @@PASS_THROUGH( 1 + !(   3  ) * 8 )
 
--- local no = @@PASS_THROUGH( @insert 654 ) -- Error!
--- local no = @@PASS_THROUGH( @insert aaaaa ) -- Error!
+local a = @@PASS_THROUGH( !(2) )
+local b = @@PASS_THROUGH( !(2) + 3 )
+local c = @@PASS_THROUGH( 1 + !(2) )
+local d = @@PASS_THROUGH( 1 + !(2) + 3 )
+
+local m = @@PASS_THROUGH( !!("1")!!("+")!!("2") )
+
+-- local no = @@PASS_THROUGH( @@654 ) -- Error!
+-- local no = @@PASS_THROUGH( @@aaaaa ) -- Error!
+-- local no = @@PASS_THROUGH( !() ) -- Error!
+-- local no = @@PASS_THROUGH( !!() ) -- Error!
+-- local no = @@PASS_THROUGH( !!( 1 ) ) -- Error!
+-- local no = @@PASS_THROUGH( !!( !(3) ) ) -- Error!
 
 
 
