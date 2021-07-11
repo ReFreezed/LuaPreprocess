@@ -1942,7 +1942,7 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 
 				if isTokenAndNotNil(tokNext, "punctuation", "(") then
 					-- Apply the same 'ambiguous syntax' rule as Lua.
-					if isLastToken(tokenStack, "whitespace") and tokenStack[#tokenStack].value:find"\n" then
+					if isTokenAndNotNil(tokenStack[iNext+1], "whitespace") and tokenStack[iNext+1].value:find"\n" then
 						errorAtToken(fileBuffers, tokNext, nil, "Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
 					end
 				elseif not (isTokenAndNotNil(tokNext, "string") or isTokenAndNotNil(tokNext, "punctuation", "{")) then

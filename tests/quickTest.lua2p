@@ -129,54 +129,10 @@ local f = @@PASS_THROUGH(function(a, b)
 	return "", nil
 end)
 
-local x = @@PASS_THROUGH( @@"tests/quickTest_expression.txt" )
-
-local x1 = @@PASS_THROUGH( 1 + !!( "2" ) + 3 )
-local x2 = @@PASS_THROUGH{ 1 + !!( "2" ) + 3 }
-local y1 = @@PASS_THROUGH( 1 + !(   2  ) + 3 )
-local y2 = @@PASS_THROUGH{ 1 + !(   2  ) + 3 }
-
-local a1 = @@PASS_THROUGH( !(1) )
-local a2 = @@PASS_THROUGH{ !(1) }
-local b1 = @@PASS_THROUGH( !(1) + 2 )
-local b2 = @@PASS_THROUGH{ !(1) + 2 }
-local c1 = @@PASS_THROUGH( 1 + !(2) )
-local c2 = @@PASS_THROUGH{ 1 + !(2) }
-local d1 = @@PASS_THROUGH( 1 + !(2) + 3 )
-local d2 = @@PASS_THROUGH{ 1 + !(2) + 3 }
-
-local m1 = @@PASS_THROUGH( !!("1")!!("+")!!("2") )
-local m2 = @@PASS_THROUGH{ !!("1")!!("+")!!("2") }
-
-local nest_x1 = @@PASS_THROUGH(@@PASS_THROUGH(@@PASS_THROUGH( 1 + !!( "2" ) + 3 )))
-local nest_x2 = @@PASS_THROUGH{@@PASS_THROUGH{@@PASS_THROUGH{ 1 + !!( "2" ) + 3 }}}
-local nest_y1 = @@PASS_THROUGH(@@PASS_THROUGH(@@PASS_THROUGH( 1 + !(   2  ) + 3 )))
-local nest_y2 = @@PASS_THROUGH{@@PASS_THROUGH{@@PASS_THROUGH{ 1 + !(   2  ) + 3 }}}
-
-local nest_a1 = @@PASS_THROUGH(@@PASS_THROUGH(@@PASS_THROUGH( !(1) )))
-local nest_a2 = @@PASS_THROUGH{@@PASS_THROUGH{@@PASS_THROUGH{ !(1) }}}
-local nest_b1 = @@PASS_THROUGH(@@PASS_THROUGH(@@PASS_THROUGH( !(1) + 2 )))
-local nest_b2 = @@PASS_THROUGH{@@PASS_THROUGH{@@PASS_THROUGH{ !(1) + 2 }}}
-local nest_c1 = @@PASS_THROUGH(@@PASS_THROUGH(@@PASS_THROUGH( 1 + !(2) )))
-local nest_c2 = @@PASS_THROUGH{@@PASS_THROUGH{@@PASS_THROUGH{ 1 + !(2) }}}
-local nest_d1 = @@PASS_THROUGH(@@PASS_THROUGH(@@PASS_THROUGH( 1 + !(2) + 3 )))
-local nest_d2 = @@PASS_THROUGH{@@PASS_THROUGH{@@PASS_THROUGH{ 1 + !(2) + 3 }}}
-
-local nest_m1 = @@PASS_THROUGH(@@PASS_THROUGH(@@PASS_THROUGH( !!("1")!!("+")!!("2") )))
-local nest_m2 = @@PASS_THROUGH{@@PASS_THROUGH{@@PASS_THROUGH{ !!("1")!!("+")!!("2") }}}
-
--- local no = @@PASS_THROUGH( @@654 ) -- Error: Bad token after @insert.
--- local no = @@PASS_THROUGH{ @@654 } -- Error: Bad token after @insert.
--- local no = @@PASS_THROUGH( @@foo ) -- Error: Bad token after macro name.
--- local no = @@PASS_THROUGH{ @@foo } -- Error: Bad token after macro name.
--- local no = @@PASS_THROUGH( !() ) -- Error: Invalid expression.
--- local no = @@PASS_THROUGH{ !() } -- Error: Invalid expression.
--- local no = @@PASS_THROUGH( !!() ) -- Error: Invalid expression.
--- local no = @@PASS_THROUGH{ !!() } -- Error: Invalid expression.
--- local no = @@PASS_THROUGH( !!( 1 ) ) -- Error: Value is not Lua code.
--- local no = @@PASS_THROUGH{ !!( 1 ) } -- Error: Value is not Lua code.
--- local no = @@PASS_THROUGH( !!( !(3) ) ) -- Error: Nested code block.
--- local no = @@PASS_THROUGH{ !!( !(3) ) } -- Error: Nested code block.
+local a = @@PASS_THROUGH( @@"tests/quickTest_expression.txt" )
+local b = @@PASS_THROUGH( !!("2") )
+local c = @@PASS_THROUGH{ 1 + !(2) + 3 }
+local d = @@PASS_THROUGH(@@PASS_THROUGH{@@PASS_THROUGH( !!("1")!!("+")!!("2") )})
 
 
 

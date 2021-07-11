@@ -5,6 +5,7 @@
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
+local ppChunk = assert(loadfile"preprocess.lua")
 local results = {}
 
 local function doTest(description, f, ...)
@@ -59,7 +60,7 @@ end
 addLabel("Preprocessor code")
 
 doTest("Inline block with simple expression", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 	local luaIn = [[
 		local x = !(1+2*3)
 	]]
@@ -69,7 +70,7 @@ doTest("Inline block with simple expression", function()
 end)
 
 doTest("Static branch", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 	local luaIn = [[
 		!if FLAG then
 			print("Yes")
@@ -88,7 +89,7 @@ doTest("Static branch", function()
 end)
 
 doTest("Output value from metaprogram", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 	local luaIn = [[
 		!local t = {
 			z = 99,
@@ -103,7 +104,7 @@ doTest("Output value from metaprogram", function()
 end)
 
 doTest("Generate code", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 	local luaIn = [[
 		!(
 		outputLua("local s = ")
@@ -116,7 +117,7 @@ doTest("Generate code", function()
 end)
 
 doTest("Parsing extended preprocessor line", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 	local luaIn = [[
 		!local str = "foo\
 		"; local arr = {
@@ -136,7 +137,7 @@ doTest("Parsing extended preprocessor line", function()
 end)
 
 doTest("Dual code", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 
 	local luaOut = assert(pp.processString{ code=[[
 		!local  one = 1
@@ -152,7 +153,7 @@ doTest("Dual code", function()
 end)
 
 doTest("Expression or not?", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 
 	local luaOut = assert(pp.processString{ code=[[
 		foo(!( math.floor(1.5) ))
@@ -171,7 +172,7 @@ doTest("Expression or not?", function()
 end)
 
 doTest("Output values of different types", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 
 	-- Valid: Numbers, strings, tables, booleans, nil.
 
@@ -195,7 +196,7 @@ doTest("Output values of different types", function()
 end)
 
 doTest("Preprocessor keywords", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 
 	local luaOut = assert(pp.processString{ code=[[ filename = @file ]]})
 	assertCodeOutput(luaOut, [[filename = "<code>"]]) -- Note: The dummy value when we have no real path may change in the future.
@@ -207,60 +208,125 @@ doTest("Preprocessor keywords", function()
 	assertCodeOutput(luaOut, [[lnStr = "<code>".. 1 .. 1 .."<code>"]])
 
 	local luaOut = assert(pp.processString{
-		code = [[
-			v = @insert "foo"
-		]],
-		onInsert = function(name)
-			return '"bar"'
-		end,
+		code     = [[ v = @insert "foo" ]],
+		onInsert = function(name)  return name  end,
 	})
-	assertCodeOutput(luaOut, [[v = "bar"]])
+	assertCodeOutput(luaOut, [[v = foo]])
 
-	local luaOut = assert(pp.processString{ code=[[
-		!function join(ident1, ident2)  return ident1..ident2  end
-		v = @insert join(foo, bar)
-	]]})
-	assertCodeOutput(luaOut, [[v = foobar]])
-
-	local luaOut = assert(pp.processString{ code=[[
-		!function echo(v)  return v  end
-		s = @insert echo""
-	]]})
-	assertCodeOutput(luaOut, [[s = ""]])
-
-	local luaOut = assert(pp.processString{ backtickStrings=true, code=[[
-		!function echo(v)  return v  end
-		s = @insert echo``
-	]]})
-	assertCodeOutput(luaOut, [[s = ""]])
-
-	local luaOut = assert(pp.processString{ code=[[
-		!function echo(v)  return v  end
-		t = @insert echo{}
-	]]})
-	assertCodeOutput(luaOut, [[t = {}]])
-
-	local luaOut = assert(pp.processString{ code=[[
-		!function echo(v)  return v  end
-		f = @insert echo(function() return a,b end)
-	]]})
-	assertCodeOutput(luaOut, [[f = function() return a,b end]])
-
-	local luaOut = assert(pp.processString{ backtickStrings=true, code=[[
-		!function echo(v)  return v  end
-		f = @insert echo(function() return a,`b` end)
-	]]})
-	assertCodeOutput(luaOut, [[f = function() return a,"b" end]])
+	local luaOut = assert(pp.processString{
+		code     = [[ v = @@"foo" ]],
+		onInsert = function(name)  return name  end,
+	})
+	assertCodeOutput(luaOut, [[v = foo]])
 
 	-- Invalid: Bad keyword.
 	assert(not pp.processString{ code=[[ @bad ]]})
 
+	-- Invalid: Bad insert value.
+	assert(not pp.processString{ code=[[ @insert 1   ]]})
+	assert(not pp.processString{ code=[[ @insert {}  ]]})
+	assert(not pp.processString{ code=[[ @insert (1) ]]})
+	assert(not pp.processString{ code=[[ @insert nil ]]})
+end)
+
+doTest("Macros", function()
+	local pp = ppChunk()
+
+	local luaOut = assert(pp.processString{ code=[[
+		!function JOIN(ident1, ident2)  return ident1..ident2  end
+		v = @insert JOIN(foo, bar)
+	]]})
+	assertCodeOutput(luaOut, [[v = foobar]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!function JOIN(ident1, ident2)  return ident1..ident2  end
+		v = @@JOIN(foo, bar)
+	]]})
+	assertCodeOutput(luaOut, [[v = foobar]])
+
+	-- Macro variants.
+	local luaOut = assert(pp.processString{ code=[[
+		!function ECHO(v)  return v  end
+		s = @@ECHO""
+	]]})
+	assertCodeOutput(luaOut, [[s = ""]])
+
+	local luaOut = assert(pp.processString{ backtickStrings=true, code=[[
+		!function ECHO(v)  return v  end
+		s = @@ECHO``
+	]]})
+	assertCodeOutput(luaOut, [[s = ""]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!function ECHO(v)  return v  end
+		t = @@ECHO{}
+	]]})
+	assertCodeOutput(luaOut, [[t = {}]])
+
+	-- Function as an argument.
+	local luaOut = assert(pp.processString{ code=[[
+		!function ECHO(v)  return v  end
+		f = @@ECHO(function() return a,b end)
+	]]})
+	assertCodeOutput(luaOut, [[f = function() return a,b end]])
+
+	local luaOut = assert(pp.processString{ backtickStrings=true, code=[[
+		!function ECHO(v)  return v  end
+		f = @@ECHO(function() return a,`b` end)
+	]]})
+	assertCodeOutput(luaOut, [[f = function() return a,"b" end]])
+
+	-- Nested macros.
+	local luaOut = assert(pp.processString{ code=[[
+		!function DOUBLE(ident)  return ident.."_"..ident  end
+		v = @@DOUBLE(@@DOUBLE(@@DOUBLE(woof)))
+	]]})
+	assertCodeOutput(luaOut, [[v = woof_woof_woof_woof_woof_woof_woof_woof]])
+
+	-- Code blocks in macros.
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(  1 ) )                ]]}), [[n = 1]]            )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1") )                ]]}), [[n = 1]]            )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(  1 ) }                ]]}), [[n = { 1 }]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1") }                ]]}), [[n = { 1 }]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(  1 ) + 2 )            ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1") + 2 )            ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(  1 ) + 2 }            ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1") + 2 }            ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !(  2 ) )            ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !!("2") )            ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !(  2 ) }            ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !!("2") }            ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !(  2 ) + 3 )        ]]}), [[n = 1 + 2 + 3]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !!("2") + 3 )        ]]}), [[n = 1 + 2 + 3]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !(  2 ) + 3 }        ]]}), [[n = { 1 + 2 + 3 }]])
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !!("2") + 3 }        ]]}), [[n = { 1 + 2 + 3 }]])
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1")!!("+")!!("2") )  ]]}), [[n = 1+2]]          )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1")!!("+")!!("2") }  ]]}), [[n = { 1+2 }]]      )
+
 	-- Invalid: Ambiguous syntax.
 	assert(not pp.processString{ code=[[
-		!function void()  return ""  end
-		v = @insert void
-		()
+		!function VOID()  return ""  end
+		v = @@VOID
+		() 1
 	]]})
+
+	-- Invalid: Bad macro arguments format.
+	assert(not pp.processString{ code=[[ @insert type[]   ]]})
+	assert(not pp.processString{ code=[[ @insert type + 1 ]]})
+
+	-- Invalid: Non-expression code block in macro.
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!(do end))  ]]})
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO{!(do end)}  ]]})
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!(      ))  ]]})
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO{!(      )}  ]]})
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!!(     ))  ]]})
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO{!!(     )}  ]]})
+
+	-- Invalid: Invalid value from code block in macro.
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!!(1))  ]]})
+
+	-- Invalid: Nested code block in macro.
+	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO( !!( !(1) ) )  ]]})
 end)
 
 
@@ -268,7 +334,7 @@ end)
 addLabel("Library API")
 
 doTest("Get useful tokens", function()
-	local pp     = assert(loadfile"preprocess.lua")()
+	local pp     = ppChunk()
 	local tokens = pp.tokenize[[local x = 5 -- Foo!]]
 
 	pp.removeUselessTokens(tokens)
@@ -285,7 +351,7 @@ doTest("Get useful tokens", function()
 end)
 
 doTest("Serialize", function()
-	local pp = assert(loadfile"preprocess.lua")()
+	local pp = ppChunk()
 
 	local t = {
 		z     = 99,
