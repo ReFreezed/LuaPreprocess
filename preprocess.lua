@@ -1805,9 +1805,8 @@ local function doEarlyExpansions(tokensToExpand, fileBuffers, params, stats)
 		return tokensToExpand
 	end
 
-	local tokenStack  = {} -- We process the last token first, and we may push new tokens onto the stack.
-	local insertCount = 0
-	local tokens      = {} -- To return.
+	local tokenStack = {} -- We process the last token first, and we may push new tokens onto the stack.
+	local tokens     = {} -- To return.
 
 	for i = #tokensToExpand, 1, -1 do
 		tableInsert(tokenStack, tokensToExpand[i])
@@ -1862,9 +1861,10 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 		return tokensToExpand
 	end
 
-	local tokenStack  = {} -- We process the last token first, and we may push new tokens onto the stack.
+	local tokenStack = {} -- We process the last token first, and we may push new tokens onto the stack.
+	local tokens     = {} -- To return.
+
 	local insertCount = 0
-	local tokens      = {} -- To return.
 
 	for i = #tokensToExpand, 1, -1 do
 		tableInsert(tokenStack, tokensToExpand[i])
@@ -1987,17 +1987,19 @@ local function insertTokensAsStringLiteral(tokens, tokensToConcat, locationTok)
 	return lua
 end
 
-local function processPreprocessorBlockInMacro(tokens, fileBuffers, tokenStack, argNonPpTokens, locationTok, isFirstPart)
-	local ppEntryTok = tableRemove(tokenStack) -- '!' or '!!'
-	assert(isToken(ppEntryTok, "pp_entry"))
-
+local function prepareForNewPartOfMacroArgument(tokens, argNonPpTokens, argNonPpStartTok, upcomingTok, isFirstPart)
 	if not isFirstPart then
-		tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, locationTok))
+		tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, argNonPpStartTok))
 	end
 	if argNonPpTokens[1] then
-		insertTokensAsStringLiteral(tokens, argNonPpTokens, locationTok)
-		tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, ppEntryTok))
+		insertTokensAsStringLiteral(tokens, argNonPpTokens, argNonPpStartTok)
+		tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, upcomingTok))
 	end
+end
+
+local function processPreprocessorBlockInMacroArgument(tokens, fileBuffers, tokenStack)
+	local ppEntryTok = tableRemove(tokenStack) -- '!' or '!!'
+	assert(isToken(ppEntryTok, "pp_entry"))
 
 	local ident = (ppEntryTok.value == "!") and "__TOLUA" or "__ASSERTLUA"
 	tableInsert(tokens, newTokenAt({type="identifier", value=ident, representation=ident}, ppEntryTok))
@@ -2031,6 +2033,271 @@ local function processPreprocessorBlockInMacro(tokens, fileBuffers, tokenStack, 
 	end
 end
 
+local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNested)
+	local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
+
+	if not isTokenAndNotNil(tokNext, "identifier") then
+		printErrorTraceback("Internal error.")
+		errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", (tokNext and tokNext.type or "?"))
+	end
+
+	local identTok = tokNext
+	popTokens(tokenStack, iNext) -- the identifier
+
+	-- Add '!!(' for start of preprocessor block.
+	if isNested then
+		tableInsert(tokens, newTokenAt({type="identifier", value="__ASSERTLUA", representation="__ASSERTLUA"}, macroStartTok))
+	else
+		tableInsert(tokens, newTokenAt({type="pp_entry", value="!!", representation="!!", double=true}, macroStartTok))
+	end
+	tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, macroStartTok))
+
+	tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+
+	-- @insert identifier " ... "
+	if isTokenAndNotNil(tokNext, "string") then
+		local stringTok = tokNext
+		popTokens(tokenStack, iNext) -- the string
+
+		-- Add 'ident' for start of call. We don't need parenthesis for this macro variant.
+		tableInsert(tokens, identTok)
+
+		stringTok.value          = stringTok.representation
+		stringTok.representation = F("%q", stringTok.value):gsub("\n", "n")
+		tableInsert(tokens, stringTok)
+
+	-- @insert identifier { ... }
+	elseif isTokenAndNotNil(tokNext, "punctuation", "{") then
+		popTokens(tokenStack, iNext) -- '{'
+
+		--
+		-- (Similar code as `@insert identifier()` below.)
+		--
+
+		-- Add 'ident(' for start of call.
+		tableInsert(tokens, identTok)
+		tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, identTok))
+
+		-- Collect tokens for the table arg.
+		-- We're looking for the closing '}'.
+		local argNonPpStartTok = tokNext -- Used for location info.
+		local argNonPpTokens   = {argNonPpStartTok}
+		local bracketDepth     = 1
+		local isFirstPart      = true
+
+		while true do
+			local len = #tokenStack
+			local tok = tokenStack[len]
+
+			if not tok then
+				errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Could not find end of table constructor before EOF.")
+
+			-- Preprocessor block in macro.
+			elseif tok.type == "pp_entry" and isTokenAndNotNil(tokenStack[len-1], "punctuation", "(") then
+				prepareForNewPartOfMacroArgument(tokens, argNonPpTokens, argNonPpStartTok, tok, isFirstPart)
+				processPreprocessorBlockInMacroArgument(tokens, fileBuffers, tokenStack)
+
+				argNonPpStartTok = tokenStack[#tokenStack] -- Could be nil, but that should be fine I think.
+				argNonPpTokens   = argNonPpTokens[1] and {} or argNonPpTokens
+				isFirstPart      = false
+
+			-- Nested macro.
+			elseif isToken(tok, "pp_keyword", "insert") then
+				prepareForNewPartOfMacroArgument(tokens, argNonPpTokens, argNonPpStartTok, tok, isFirstPart)
+				expandMacro(tokens, fileBuffers, tokenStack, tok, true)
+
+				argNonPpStartTok = tokenStack[#tokenStack] -- Could be nil, but that should be fine I think.
+				argNonPpTokens   = argNonPpTokens[1] and {} or argNonPpTokens
+				isFirstPart      = false
+
+			-- Other preprocessor code in macro. (Not sure we ever get here.)
+			elseif tok.type:find"^pp_" then
+				errorAtToken(fileBuffers, tok, nil, "Macro", "Unsupported preprocessor code in macro. (Macro starts %s)", getRelativeLocationText(macroStartTok, tok))
+
+			-- End of table and argument.
+			elseif bracketDepth == 1 and isToken(tok, "punctuation", "}") then
+				tableInsert(argNonPpTokens, tableRemove(tokenStack)) -- '}'
+				break
+
+			-- Normal token.
+			else
+				if isToken(tok, "punctuation", "{") then
+					bracketDepth = bracketDepth + 1
+				elseif isToken(tok, "punctuation", "}") then
+					bracketDepth = bracketDepth - 1
+				end
+				tableInsert(argNonPpTokens, tableRemove(tokenStack)) -- anything
+			end
+		end
+
+		-- Add last part of argument value.
+		if argNonPpTokens[1] then
+			if not isFirstPart then
+				tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, argNonPpStartTok))
+			end
+			local argStr = insertTokensAsStringLiteral(tokens, argNonPpTokens, argNonPpStartTok)
+
+			if isFirstPart then
+				local chunk, err = loadLuaString("return ("..argStr..")", "@")
+
+				if not chunk then
+					errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid table constructor expression.")
+					-- err = err:gsub("^:%d+: ", "")
+					-- errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid table constructor expression. (%s)", err)
+				end
+			end
+		end
+
+		-- Add ')' for end of call.
+		tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
+
+	-- @insert identifier ( argument1, ... )
+	else
+		if not isTokenAndNotNil(tokNext, "punctuation", "(") then
+			printErrorTraceback("Internal error.")
+			errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", (tokNext and tokNext.type or "?"))
+		end
+
+		local parensStartTok = tokNext
+		popTokens(tokenStack, iNext) -- '('
+
+		-- Add 'ident(' for start of call.
+		tableInsert(tokens, identTok)
+		tableInsert(tokens, parensStartTok)
+
+		tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+		if isTokenAndNotNil(tokNext, "punctuation", ")") then
+			popUseless(tokenStack)
+
+		else
+			local lastArgSeparatorTok = nil
+
+			for argNum = 1, 1/0 do
+				-- Add ',' as argument separator.
+				if lastArgSeparatorTok then
+					tableInsert(tokens, lastArgSeparatorTok)
+				end
+
+				-- Collect tokens for this arg.
+				-- We're looking for the next comma at depth 0 or closing ')'.
+				local argNonPpStartTok = tokenStack[#tokenStack] -- Used for location info.
+				local argNonPpTokens   = {}
+				local depthStack       = {}
+				local isFirstPart      = true
+				popUseless(tokenStack) -- Trim leading useless tokens.
+
+				while true do
+					local len = #tokenStack
+					local tok = tokenStack[len]
+
+					if not tok then
+						errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
+
+					-- Preprocessor block in macro.
+					elseif tok.type == "pp_entry" and isTokenAndNotNil(tokenStack[len-1], "punctuation", "(") then
+						prepareForNewPartOfMacroArgument(tokens, argNonPpTokens, argNonPpStartTok, tok, isFirstPart)
+						processPreprocessorBlockInMacroArgument(tokens, fileBuffers, tokenStack)
+
+						argNonPpStartTok = tokenStack[#tokenStack] -- Could be nil, but that should be fine I think.
+						argNonPpTokens   = argNonPpTokens[1] and {} or argNonPpTokens
+						isFirstPart      = false
+
+					-- Nested macro.
+					elseif isToken(tok, "pp_keyword", "insert") then
+						prepareForNewPartOfMacroArgument(tokens, argNonPpTokens, argNonPpStartTok, tok, isFirstPart)
+						expandMacro(tokens, fileBuffers, tokenStack, tok, true)
+
+						argNonPpStartTok = tokenStack[#tokenStack] -- Could be nil, but that should be fine I think.
+						argNonPpTokens   = argNonPpTokens[1] and {} or argNonPpTokens
+						isFirstPart      = false
+
+					-- Other preprocessor code in macro. (Not sure we ever get here.)
+					elseif tok.type:find"^pp_" then
+						errorAtToken(fileBuffers, tok, nil, "Macro", "Unsupported preprocessor code in macro. (Macro starts %s)", getRelativeLocationText(macroStartTok, tok))
+
+					-- End of argument.
+					elseif not depthStack[1] and (isToken(tok, "punctuation", ",") or isToken(tok, "punctuation", ")")) then
+						break
+
+					-- Normal token.
+					else
+						if isToken(tok, "punctuation", "(") then
+							tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]=")"})
+						elseif isToken(tok, "punctuation", "[") then
+							tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="]"})
+						elseif isToken(tok, "punctuation", "{") then
+							tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="}"})
+						elseif isToken(tok, "keyword", "function") or isToken(tok, "keyword", "if") or isToken(tok, "keyword", "do") then
+							tableInsert(depthStack, {startToken=tok, [1]="keyword", [2]="end"})
+						elseif isToken(tok, "keyword", "repeat") then
+							tableInsert(depthStack, {startToken=tok, [1]="keyword", [2]="until"})
+
+						elseif
+							isToken(tok, "punctuation", ")")   or
+							isToken(tok, "punctuation", "]")   or
+							isToken(tok, "punctuation", "}")   or
+							isToken(tok, "keyword",     "end") or
+							isToken(tok, "keyword",     "until")
+						then
+							if not depthStack[1] then
+								errorAtToken(fileBuffers, tok, nil, "Macro", "Unexpected '%s'.", tok.value)
+							elseif not isToken(tok, unpack(depthStack[#depthStack])) then
+								local startTok = depthStack[#depthStack].startToken
+								errorAtToken(
+									fileBuffers, tok, nil, "Macro",
+									"Expected '%s' (to close '%s' %s) but got '%s'.",
+									depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value
+								)
+							end
+							tableRemove(depthStack)
+						end
+
+						tableInsert(argNonPpTokens, tableRemove(tokenStack)) -- anything
+					end
+				end
+
+				-- Add last part of argument value.
+				popUseless(argNonPpTokens) -- Trim trailing useless tokens.
+
+				if argNonPpTokens[1] then
+					if not isFirstPart then
+						tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, argNonPpStartTok))
+					end
+					local argStr = insertTokensAsStringLiteral(tokens, argNonPpTokens, argNonPpStartTok)
+
+					if isFirstPart then
+						local chunk, err = loadLuaString("return ("..argStr..")", "@")
+
+						if not chunk then
+							errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid expression for argument #%d.", argNum)
+							-- err = err:gsub("^:%d+: ", "")
+							-- errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid expression for argument #%d. (%s)", argNum, err)
+						end
+					end
+
+				elseif isFirstPart then
+					-- There were no useful tokens for the argument!
+					errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Expected argument #%d.", argNum)
+				end
+
+				-- Do next argument or finish arguments.
+				if isLastToken(tokenStack, "punctuation", ")") then
+					break
+				end
+
+				lastArgSeparatorTok = tableRemove(tokenStack) -- ','
+				assert(isToken(lastArgSeparatorTok, "punctuation", ","))
+			end--for argNum
+		end
+
+		-- Add ')' for end of call.
+		tableInsert(tokens, tableRemove(tokenStack)) -- ')'
+	end
+
+	-- Add ')' for end of preprocessor block.
+	tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
+end
+
 local function doLateExpansionsMacros(tokensToExpand, fileBuffers, params, stats)
 	--
 	-- Expand expressions:
@@ -2042,9 +2309,8 @@ local function doLateExpansionsMacros(tokensToExpand, fileBuffers, params, stats
 		return tokensToExpand
 	end
 
-	local tokenStack  = {} -- We process the last token first, and we may push new tokens onto the stack.
-	local insertCount = 0
-	local tokens      = {} -- To return.
+	local tokenStack = {} -- We process the last token first, and we may push new tokens onto the stack.
+	local tokens     = {} -- To return.
 
 	for i = #tokensToExpand, 1, -1 do
 		tableInsert(tokenStack, tokensToExpand[i])
@@ -2055,253 +2321,13 @@ local function doLateExpansionsMacros(tokensToExpand, fileBuffers, params, stats
 
 		-- Keyword.
 		if isToken(tok, "pp_keyword") then
-			local ppKeywordTok   = tok
-			local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
+			local ppKeywordTok = tok
 
 			-- @insert identifier ( argument1, ... )
 			-- @insert identifier " ... "
 			-- @insert identifier { ... }
 			if ppKeywordTok.value == "insert" then
-				if not isTokenAndNotNil(tokNext, "identifier") then
-					printErrorTraceback("Internal error.", level)
-					errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", (tokNext and tokNext.type or "?"))
-				end
-
-				local identTok = tokNext
-				popTokens(tokenStack, iNext) -- the identifier
-
-				tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
-
-				-- @insert identifier " ... "
-				if isTokenAndNotNil(tokNext, "string") then
-					local stringTok = tokNext
-					popTokens(tokenStack, iNext) -- the string
-
-					-- Add '!!(ident'.
-					tableInsert(tokens, newTokenAt({type="pp_entry",    value="!!", representation="!!", double=true}, ppKeywordTok))
-					tableInsert(tokens, newTokenAt({type="punctuation", value="(",  representation="("              }, ppKeywordTok))
-					tableInsert(tokens, identTok)
-
-					stringTok.value          = stringTok.representation
-					stringTok.representation = F("%q", stringTok.value):gsub("\n", "n")
-					tableInsert(tokens, stringTok)
-
-					-- Add ')'.
-					tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, ppKeywordTok))
-
-				-- @insert identifier { ... }
-				elseif isTokenAndNotNil(tokNext, "punctuation", "{") then
-					popTokens(tokenStack, iNext) -- '{'
-
-					--
-					-- (Similar code as `@insert identifier()` below.)
-					--
-
-					-- Add '!!(ident('.
-					tableInsert(tokens, newTokenAt({type="pp_entry",    value="!!", representation="!!", double=true}, ppKeywordTok))
-					tableInsert(tokens, newTokenAt({type="punctuation", value="(",  representation="("              }, ppKeywordTok))
-					tableInsert(tokens, identTok)
-					tableInsert(tokens, newTokenAt({type="punctuation", value="(",  representation="("              }, identTok))
-
-					-- Collect tokens for the table arg.
-					-- We're looking for the closing '}'.
-					local argNonPpStartTok = tokNext -- Used for location info.
-					local argNonPpTokens   = {argNonPpStartTok}
-					local bracketDepth     = 1
-					local isFirstPart      = true
-
-					while true do
-						local len = #tokenStack
-						tok       = tokenStack[len]
-
-						if not tok then
-							errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Could not find end of table constructor before EOF.")
-
-						-- Preprocessor block in macro.
-						elseif tok.type == "pp_entry" and isTokenAndNotNil(tokenStack[len-1], "punctuation", "(") then
-							processPreprocessorBlockInMacro(tokens, fileBuffers, tokenStack, argNonPpTokens, argNonPpStartTok, isFirstPart)
-
-							argNonPpStartTok = tokenStack[#tokenStack] -- Could be nil, but that should be fine I think.
-							argNonPpTokens   = argNonPpTokens[1] and {} or argNonPpTokens
-							isFirstPart      = false
-
-						-- Other preprocessor code in macro.
-						elseif tok.type:find"^pp_" then
-							errorAtToken(fileBuffers, tok, nil, "Macro", "Unsupported preprocessor code in macro. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
-
-						-- End of table and argument.
-						elseif bracketDepth == 1 and isToken(tok, "punctuation", "}") then
-							tableInsert(argNonPpTokens, tableRemove(tokenStack)) -- '}'
-							break
-
-						-- Normal token.
-						else
-							if isToken(tok, "punctuation", "{") then
-								bracketDepth = bracketDepth + 1
-							elseif isToken(tok, "punctuation", "}") then
-								bracketDepth = bracketDepth - 1
-							end
-							tableInsert(argNonPpTokens, tableRemove(tokenStack)) -- anything
-						end
-					end
-
-					-- Add last part of argument value.
-					if argNonPpTokens[1] then
-						if not isFirstPart then
-							tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, argNonPpStartTok))
-						end
-						local argStr = insertTokensAsStringLiteral(tokens, argNonPpTokens, argNonPpStartTok)
-
-						if isFirstPart then
-							local chunk, err = loadLuaString("return ("..argStr..")", "@")
-
-							if not chunk then
-								errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid table constructor expression.")
-								-- err = err:gsub("^:%d+: ", "")
-								-- errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid table constructor expression. (%s)", err)
-							end
-						end
-					end
-
-					-- Add '))'.
-					tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
-					tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
-
-				-- @insert identifier ( argument1, ... )
-				else
-					if not isTokenAndNotNil(tokNext, "punctuation", "(") then
-						printErrorTraceback("Internal error.", level)
-						errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", (tokNext and tokNext.type or "?"))
-					end
-
-					local parensStartTok = tokNext
-					popTokens(tokenStack, iNext) -- '('
-
-					-- Add '!!(ident('.
-					tableInsert(tokens, newTokenAt({type="pp_entry",    value="!!", representation="!!", double=true}, ppKeywordTok))
-					tableInsert(tokens, newTokenAt({type="punctuation", value="(",  representation="("              }, ppKeywordTok))
-					tableInsert(tokens, identTok)
-					tableInsert(tokens, parensStartTok)
-
-					tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
-					if isTokenAndNotNil(tokNext, "punctuation", ")") then
-						popUseless(tokenStack)
-
-					else
-						local lastArgSeparatorTok = nil
-
-						for argNum = 1, 1/0 do
-							-- Add argument separator.
-							if lastArgSeparatorTok then
-								tableInsert(tokens, lastArgSeparatorTok)
-							end
-
-							-- Collect tokens for this arg.
-							-- We're looking for the next comma at depth 0 or closing ')'.
-							local argNonPpStartTok = tokenStack[#tokenStack] -- Used for location info.
-							local argNonPpTokens   = {}
-							local depthStack       = {}
-							local isFirstPart      = true
-							popUseless(tokenStack) -- Trim leading useless tokens.
-
-							while true do
-								local len = #tokenStack
-								tok       = tokenStack[len]
-
-								if not tok then
-									errorAtToken(fileBuffers, parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
-
-								-- Preprocessor block in macro.
-								elseif tok.type == "pp_entry" and isTokenAndNotNil(tokenStack[len-1], "punctuation", "(") then
-									processPreprocessorBlockInMacro(tokens, fileBuffers, tokenStack, argNonPpTokens, argNonPpStartTok, isFirstPart)
-
-									argNonPpStartTok = tokenStack[#tokenStack] -- Could be nil, but that should be fine I think.
-									argNonPpTokens   = argNonPpTokens[1] and {} or argNonPpTokens
-									isFirstPart      = false
-
-								-- Other preprocessor code in macro.
-								elseif tok.type:find"^pp_" then
-									errorAtToken(fileBuffers, tok, nil, "Macro", "Unsupported preprocessor code in macro. (Macro starts %s)", getRelativeLocationText(ppKeywordTok, tok))
-
-								-- End of argument.
-								elseif not depthStack[1] and (isToken(tok, "punctuation", ",") or isToken(tok, "punctuation", ")")) then
-									break
-
-								-- Normal token.
-								else
-									if isToken(tok, "punctuation", "(") then
-										tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]=")"})
-									elseif isToken(tok, "punctuation", "[") then
-										tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="]"})
-									elseif isToken(tok, "punctuation", "{") then
-										tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="}"})
-									elseif isToken(tok, "keyword", "function") or isToken(tok, "keyword", "if") or isToken(tok, "keyword", "do") then
-										tableInsert(depthStack, {startToken=tok, [1]="keyword", [2]="end"})
-									elseif isToken(tok, "keyword", "repeat") then
-										tableInsert(depthStack, {startToken=tok, [1]="keyword", [2]="until"})
-
-									elseif
-										isToken(tok, "punctuation", ")")   or
-										isToken(tok, "punctuation", "]")   or
-										isToken(tok, "punctuation", "}")   or
-										isToken(tok, "keyword",     "end") or
-										isToken(tok, "keyword",     "until")
-									then
-										if not depthStack[1] then
-											errorAtToken(fileBuffers, tok, nil, "Macro", "Unexpected '%s'.", tok.value)
-										elseif not isToken(tok, unpack(depthStack[#depthStack])) then
-											local startTok = depthStack[#depthStack].startToken
-											errorAtToken(
-												fileBuffers, tok, nil, "Macro",
-												"Expected '%s' (to close '%s' %s) but got '%s'.",
-												depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value
-											)
-										end
-										tableRemove(depthStack)
-									end
-
-									tableInsert(argNonPpTokens, tableRemove(tokenStack)) -- anything
-								end
-							end
-
-							-- Add last part of argument value.
-							popUseless(argNonPpTokens) -- Trim trailing useless tokens.
-
-							if argNonPpTokens[1] then
-								if not isFirstPart then
-									tableInsert(tokens, newTokenAt({type="punctuation", value="..", representation=".."}, argNonPpStartTok))
-								end
-								local argStr = insertTokensAsStringLiteral(tokens, argNonPpTokens, argNonPpStartTok)
-
-								if isFirstPart then
-									local chunk, err = loadLuaString("return ("..argStr..")", "@")
-
-									if not chunk then
-										errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid expression for argument #%d.", argNum)
-										-- err = err:gsub("^:%d+: ", "")
-										-- errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid expression for argument #%d. (%s)", argNum, err)
-									end
-								end
-
-							elseif isFirstPart then
-								-- There were no useful tokens for the argument!
-								errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Expected argument #%d.", argNum)
-							end
-
-							-- Do next argument or finish arguments.
-							if isLastToken(tokenStack, "punctuation", ")") then
-								break
-							end
-
-							lastArgSeparatorTok = tableRemove(tokenStack) -- ','
-							assert(isToken(lastArgSeparatorTok, "punctuation", ","))
-						end--for argNum
-					end
-
-					-- Add '))'.
-					tableInsert(tokens, tableRemove(tokenStack)) -- ')'
-					tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
-				end
+				expandMacro(tokens, fileBuffers, tokenStack, ppKeywordTok, false)
 
 			else
 				errorAtToken(fileBuffers, ppKeywordTok, nil, "Macro", "Internal error. (%s)", ppKeywordTok.value)

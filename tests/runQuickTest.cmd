@@ -10,4 +10,4 @@ REM lua ./preprocess-cl.lua --debug --saveinfo=local/info.lua --data="Hello, wor
 REM lua ./preprocess-cl.lua --debug --saveinfo=local/info.lua --data="Hello, world!" --outputpaths tests/quickTest.lua2p local/quickTest.output.lua
 REM lua ./preprocess-cl.lua --debug --saveinfo=local/info.lua --data="Hello, world!" --outputpaths tests/quickTest.lua2p local/quickTest.output.lua --linenumbers
 
-IF %ERRORLEVEL% EQU 0  lua tests/quickTest.lua
+IF %ERRORLEVEL% EQU 0  lua -e"io.stdout:setvbuf'no'" -e"io.stderr:setvbuf'no'" tests/quickTest.lua
