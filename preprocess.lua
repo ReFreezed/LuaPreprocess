@@ -1879,7 +1879,7 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 			local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
 
 			-- @insert "name"
-			if ppKeywordTok.value == "insert" and isTokenAndNotNil(tokNext, "string") then
+			if ppKeywordTok.value == "insert" and isTokenAndNotNil(tokNext, "string") and tokNext.file == ppKeywordTok.file then
 				local nameTok = tokNext
 				popTokens(tokenStack, iNext) -- the string
 
@@ -1936,7 +1936,7 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 			-- @insert identifier ( argument1, ... )
 			-- @insert identifier " ... "
 			-- @insert identifier { ... }
-			elseif ppKeywordTok.value == "insert" and isTokenAndNotNil(tokNext, "identifier") then
+			elseif ppKeywordTok.value == "insert" and isTokenAndNotNil(tokNext, "identifier") and tokNext.file == ppKeywordTok.file then
 				local identTok = tokNext
 				tokNext, iNext = getNextUsableToken(tokenStack, iNext-1, nil, -1)
 
@@ -2034,6 +2034,7 @@ local function processPreprocessorBlockInMacroArgument(tokens, fileBuffers, toke
 end
 
 local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNested)
+	-- @Robustness: Make sure key tokens came from the same source file.
 	local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
 
 	if not isTokenAndNotNil(tokNext, "identifier") then

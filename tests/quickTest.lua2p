@@ -79,8 +79,8 @@ print(s:match(funcCall)) -- "hello5( foo )"
 @insert "tests/quickTest.luapart"
 print("Metaprogram - someString: "..someString)
 )
-local uhh1 = !(@insert"tests/quickTest.txt")
-local uhh2 = !(@@"tests/quickTest.txt") -- @@ means the same as @insert.
+local uhh1 = !(@insert"tests/quickTest_expression.txt")
+local uhh2 = !(@@"tests/quickTest_expression.txt") -- @@ means the same as @insert.
 print("Final program - uhh: "..uhh1..", "..uhh2)
 
 
@@ -129,7 +129,7 @@ local f = @@PASS_THROUGH(function(a, b)
 	return "", nil
 end)
 
-local x = @@PASS_THROUGH( @@"tests/quickTest.txt" )
+local x = @@PASS_THROUGH( @@"tests/quickTest_expression.txt" )
 
 local x1 = @@PASS_THROUGH( 1 + !!( "2" ) + 3 )
 local x2 = @@PASS_THROUGH{ 1 + !!( "2" ) + 3 }
