@@ -954,28 +954,25 @@ function serialize(buffer, v)
 	elseif vType == "string" then
 		if v == "" then
 			tableInsert(buffer, '""')
+			return true
+		end
 
-		elseif fastStrings or not v:find"[^\32-\126\t\n]" then
+		local useApostrophe = v:find('"', 1, true) and not v:find("'", 1, true)
+		local quote         = useApostrophe and "'" or '"'
+
+		tableInsert(buffer, quote)
+
+		if fastStrings or not v:find"[^\32-\126\t\n]" then
 			-- print(">> FAST", #v) -- DEBUG
 
-			local s = v:gsub("[%c\128-\255\"\\]", function(c)
-				local s             = ESCAPE_SEQUENCES[c] or F("\\%03d", c:byte())
-				ESCAPE_SEQUENCES[c] = s -- Cache the result.
-				return s
+			local s = v:gsub((useApostrophe and "[\t\n\\']" or '[\t\n\\"]'), function(c)
+				return ESCAPE_SEQUENCES[c] or errorf("Internal error. (%d)", c:byte())
 			end)
-
-			tableInsert(buffer, '"')
 			tableInsert(buffer, s)
-			tableInsert(buffer, '"')
 
 		else
 			-- print(">> SLOW", #v) -- DEBUG
-
-			local quote      = (v:find('"', 1, true) and not v:find("'", 1, true)) and "'" or '"'
-			local pos        = 1
-			local toMinimize = {}
-
-			tableInsert(buffer, quote)
+			local pos = 1
 
 			-- @Speed: There are optimizations to be made here!
 			while pos <= #v do
@@ -992,22 +989,13 @@ function serialize(buffer, v)
 
 				-- Anything else.
 				else
-					local b = v:byte(pos)
-					tableInsert(buffer, F("\\%03d", b))
-					if b <= 99 then  tableInsert(toMinimize, #buffer)  end
-					pos = pos+1
+					tableInsert(buffer, F((v:find("^%d", pos+1) and "\\%03d" or "\\%d"), v:byte(pos)))
+					pos = pos + 1
 				end
 			end
-
-			-- Minimize \nnn sequences that aren't followed by digits.
-			for _, i in ipairs(toMinimize) do
-				if not (buffer[i+1] and buffer[i+1]:find"^%d") then
-					buffer[i] = buffer[i]:gsub("0+(%d)", "%1")
-				end
-			end
-
-			tableInsert(buffer, quote)
 		end
+
+		tableInsert(buffer, quote)
 
 	elseif v == 1/0 then
 		tableInsert(buffer, "(1/0)")
@@ -1548,6 +1536,22 @@ function metaFuncs.getNextUsefulToken(tokens, i1, steps)
 	return nil
 end
 
+local numberFormatters = {
+	-- @Incomplete: Hexadecimal floats.
+	auto        = function(n) return tostring(n) end,
+	integer     = function(n) return F("%d", n) end,
+	int         = function(n) return F("%d", n) end,
+	float       = function(n) return F("%f", n):gsub("(%d)0+$", "%1") end,
+	scientific  = function(n) return F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1") end,
+	SCIENTIFIC  = function(n) return F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1") end,
+	e           = function(n) return F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1") end,
+	E           = function(n) return F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1") end,
+	hexadecimal = function(n) return (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet.", 3)) end,
+	HEXADECIMAL = function(n) return (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet.", 3)) end,
+	hex         = function(n) return (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet.", 3)) end,
+	HEX         = function(n) return (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet.", 3)) end,
+}
+
 -- newToken()
 --   Create a new token. Different token types take different arguments.
 --   token = newToken( tokenType, ... )
@@ -1560,7 +1564,7 @@ end
 --   stringToken      = newToken( "string",      contents [, longForm=false ] )
 --   whitespaceToken  = newToken( "whitespace",  contents )
 --   ppEntryToken     = newToken( "pp_entry",    isDouble )
---   ppKeywordToken   = newToken( "pp_keyword",  ppKeyword )
+--   ppKeywordToken   = newToken( "pp_keyword",  ppKeyword ) -- ppKeyword can be "@".
 --
 --   commentToken     = { type="comment",     representation=string, value=string, long=isLongForm }
 --   identifierToken  = { type="identifier",  representation=string, value=string }
@@ -1590,7 +1594,7 @@ function metaFuncs.newToken(tokType, ...)
 	if tokType == "comment" then
 		local comment, long = ...
 		long                = not not (long or comment:find"[\r\n]")
-		assert(type(comment) == "string")
+		assertarg(2, comment, "string")
 
 		local repr
 		if long then
@@ -1610,7 +1614,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "identifier" then
 		local ident = ...
-		assert(type(ident) == "string")
+		assertarg(2, ident, "string")
 
 		if ident == "" then
 			error("Identifier length is 0.", 2)
@@ -1622,7 +1626,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "keyword" then
 		local keyword = ...
-		assert(type(keyword) == "string")
+		assertarg(2, keyword, "string")
 
 		if not KEYWORDS[keyword] then
 			errorf(2, "Bad keyword '%s'.", keyword)
@@ -1633,33 +1637,23 @@ function metaFuncs.newToken(tokType, ...)
 	elseif tokType == "number" then
 		local n, numberFormat = ...
 		numberFormat          = numberFormat or "auto"
-		assert(type(n) == "number")
+		assertarg(2, n,            "number")
+		assertarg(3, numberFormat, "string")
 
-		-- Some of these are technically multiple other tokens. We could trigger an error but ehhh...
-		-- @Incomplete: Hexadecimal floats.
-		local numStr
-			=  n            ~= n             and "(0/0)"
-			or n            == 1/0           and "(1/0)"
-			or n            == -1/0          and "(-1/0)"
-			or numberFormat == "auto"        and tostring(n)
-			or numberFormat == "integer"     and F("%d", n)
-			or numberFormat == "int"         and F("%d", n)
-			or numberFormat == "float"       and F("%f", n):gsub("(%d)0+$", "%1")
-			or numberFormat == "scientific"  and F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1")
-			or numberFormat == "SCIENTIFIC"  and F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1")
-			or numberFormat == "e"           and F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1")
-			or numberFormat == "E"           and F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1")
-			or numberFormat == "hexadecimal" and (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet.", 2))
-			or numberFormat == "HEXADECIMAL" and (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet.", 2))
-			or numberFormat == "hex"         and (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet.", 2))
-			or numberFormat == "HEX"         and (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet.", 2))
-			or errorf(2, "Invalid number format '%s'.", numberFormat)
+		-- Some of these are technically multiple other tokens. We could raise an error but ehhh...
+		local numStr = (
+			n ~=  n   and "(0/0)"  or
+			n ==  1/0 and "(1/0)"  or
+			n == -1/0 and "(-1/0)" or
+			numberFormatters[numberFormat] and numberFormatters[numberFormat](n) or
+			errorf(2, "Invalid number format '%s'.", numberFormat)
+		)
 
 		return {type="number", representation=numStr, value=n}
 
 	elseif tokType == "punctuation" then
 		local symbol = ...
-		assert(type(symbol) == "string")
+		assertarg(2, symbol, "string")
 
 		-- Note: "!" and "!!" are of a different token type (pp_entry).
 		if not PUNCTUATION[symbol] then
@@ -1671,27 +1665,28 @@ function metaFuncs.newToken(tokType, ...)
 	elseif tokType == "string" then
 		local s, long = ...
 		long          = not not long
-		assert(type(s) == "string")
+		assertarg(2, s, "string")
 
 		local repr
+
 		if long then
 			local equalSigns = ""
 
 			while s:find(F("]%s]", equalSigns), 1, true) do
-				equalSigns = equalSigns.."="
+				equalSigns = equalSigns .. "="
 			end
 
 			repr = F("[%s[%s]%s]", equalSigns, s, equalSigns)
 
 		else
-			repr = F("%q", s):gsub("\\\n", "\\n")
+			repr = toLua(s)
 		end
 
 		return {type="string", representation=repr, value=s, long=long}
 
 	elseif tokType == "whitespace" then
 		local whitespace = ...
-		assert(type(whitespace) == "string")
+		assertarg(2, whitespace, "string")
 
 		if whitespace == "" then
 			error("String is empty.", 2)
@@ -1703,7 +1698,7 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "pp_entry" then
 		local double = ...
-		assert(type(double) == "boolean")
+		assertarg(2, double, "boolean")
 
 		local symbol = double and "!!" or "!"
 
@@ -1711,16 +1706,18 @@ function metaFuncs.newToken(tokType, ...)
 
 	elseif tokType == "pp_keyword" then
 		local keyword = ...
-		assert(type(keyword) == "string")
+		assertarg(2, keyword, "string")
 
-		if not PREPROCESSOR_KEYWORDS[keyword] then
+		if keyword == "@" then
+			return {type="pp_keyword", representation="@@", value="insert"}
+		elseif not PREPROCESSOR_KEYWORDS[keyword] then
 			errorf(2, "Bad preprocessor keyword '%s'.", keyword)
+		else
+			return {type="pp_keyword", representation="@"..keyword, value=keyword}
 		end
 
-		return {type="pp_keyword", representation="@"..keyword, value=keyword}
-
 	else
-		errorf(2, "Invalid token type '%s'.", tokType)
+		errorf(2, "Invalid token type '%s'.", tostring(tokType))
 	end
 end
 

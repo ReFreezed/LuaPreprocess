@@ -333,6 +333,80 @@ end)
 
 addLabel("Library API")
 
+doTest("Create tokens", function()
+	local pp = ppChunk()
+
+	local function assertToken(tok, tokType, v, repr, extraK, extraV)
+		if tok.type           ~= tokType then  error(tok.type,              2) end
+		if tok.value          ~= v       then  error(tok.value,             2) end
+		if tok.representation ~= repr    then  error(tok.representation,    2) end
+		if tok[extraK]        ~= extraV  then  error(tostring(tok[extraK]), 2) end
+	end
+
+	assert(not pcall(pp.newToken, "bad", nil))
+
+	-- Comment.
+	assertToken(pp.newToken("comment", "foo",        false), "comment", "foo",        "--foo\n",            "long", false)
+	assertToken(pp.newToken("comment", "foo",        true ), "comment", "foo",        "--[[foo]]",          "long", true )
+	assertToken(pp.newToken("comment", "foo\nbar",   false), "comment", "foo\nbar",   "--[[foo\nbar]]",     "long", true )
+	assertToken(pp.newToken("comment", "foo\nbar]]", false), "comment", "foo\nbar]]", "--[=[foo\nbar]]]=]", "long", true )
+
+	-- Identifier.
+	assertToken(pp.newToken("identifier", "foo"), "identifier", "foo", "foo", nil, nil)
+
+	-- Keyword.
+	assertToken(pp.newToken("keyword", "if"), "keyword", "if", "if", nil, nil)
+
+	assert(not pcall(pp.newToken, "keyword", "bad"))
+
+	-- Number.
+	assertToken(pp.newToken("number", 42,    "auto" ), "number", 42,    "42",      nil, nil)
+	assertToken(pp.newToken("number", -1.25, "auto" ), "number", -1.25, "-1.25",   nil, nil)
+	assertToken(pp.newToken("number", 5.75,  "e"    ), "number", 5.75,  "5.75e+0", nil, nil)
+	assertToken(pp.newToken("number", 255,   "HEX"  ), "number", 255,   "0xFF",    nil, nil)
+	assertToken(pp.newToken("number", 1/0,   "auto" ), "number", 1/0,   "(1/0)",   nil, nil)
+	assertToken(pp.newToken("number", -1/0,  "float"), "number", -1/0,  "(-1/0)",  nil, nil)
+
+	local tok = pp.newToken("number", 0/0, "hex")
+	assert(tok.type           == "number",  tok.type)
+	assert(tok.value          ~= tok.value, tok.value)
+	assert(tok.representation == "(0/0)",   tok.representation)
+
+	-- Punctuation.
+	assertToken(pp.newToken("punctuation", "=="), "punctuation", "==", "==", nil, nil)
+
+	assert(not pcall(pp.newToken, "punctuation", "!="))
+
+	-- String.
+	assertToken(pp.newToken("string", "foo",       false), "string", "foo",       '"foo"',         "long", false)
+	assertToken(pp.newToken("string", 'foo"\nbar', false), "string", 'foo"\nbar', "'foo\"\\nbar'", "long", false)
+	assertToken(pp.newToken("string", "foo",       true ), "string", "foo",       "[[foo]]",       "long", true )
+	assertToken(pp.newToken("string", "foo]]",     true ), "string", "foo]]",     "[=[foo]]]=]",   "long", true )
+
+	assertToken(
+		pp.newToken("string", "\0\1\2\3\4\5\6\7\8\9\10\11\12\13\14\15\16\17\18\19\20\21\22\23\24\25\26\27\28\29\30\0310\127", false),
+		"string",
+		"\0\1\2\3\4\5\6\7\8\9\10\11\12\13\14\15\16\17\18\19\20\21\22\23\24\25\26\27\28\29\30\0310\127",
+		[["\0\1\2\3\4\5\6\a\b\t\n\v\f\r\14\15\16\17\18\19\20\21\22\23\24\25\26\27\28\29\30\0310\127"]],
+		"long", false
+	)
+
+	-- Whitespace.
+	assertToken(pp.newToken("whitespace", "\t \n"), "whitespace", "\t \n", "\t \n", nil, nil)
+
+	assert(not pcall(pp.newToken, "whitespace", "bad"))
+
+	-- Preprocessor entry.
+	assertToken(pp.newToken("pp_entry", false), "pp_entry", "!",  "!",  "double", false)
+	assertToken(pp.newToken("pp_entry", true ), "pp_entry", "!!", "!!", "double", true )
+
+	-- Preprocessor keyword.
+	assertToken(pp.newToken("pp_keyword", "line"), "pp_keyword", "line",   "@line", nil, nil)
+	assertToken(pp.newToken("pp_keyword", "@"   ), "pp_keyword", "insert", "@@",    nil, nil)
+
+	assert(not pcall(pp.newToken, "pp_keyword", "bad"))
+end)
+
 doTest("Get useful tokens", function()
 	local pp     = ppChunk()
 	local tokens = pp.tokenize[[local x = 5 -- Foo!]]
