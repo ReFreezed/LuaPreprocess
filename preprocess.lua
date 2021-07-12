@@ -4,8 +4,8 @@
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
---=  Website: https://github.com/ReFreezed/LuaPreprocess
---=  Documentation: https://github.com/ReFreezed/LuaPreprocess/wiki
+--=  Website: http://luapreprocess.refreezed.com/
+--=  Documentation: http://luapreprocess.refreezed.com/docs/
 --=
 --=  Tested with Lua 5.1, 5.2, 5.3 and 5.4.
 --=
@@ -112,7 +112,7 @@
 	-- Though in this specific case a preprocessor line (without the parenthesis) would be nicer:
 	!func()
 
-	-- For the full documentation, see: https://github.com/ReFreezed/LuaPreprocess/wiki
+	-- For the full documentation, see: http://luapreprocess.refreezed.com/docs/
 
 --============================================================]]
 
@@ -1942,7 +1942,11 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 					if isTokenAndNotNil(tokenStack[iNext+1], "whitespace") and tokenStack[iNext+1].value:find"\n" then
 						errorAtToken(fileBuffers, tokNext, nil, "Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
 					end
-				elseif not (isTokenAndNotNil(tokNext, "string") or isTokenAndNotNil(tokNext, "punctuation", "{")) then
+
+				elseif not (tokNext and (
+					tokNext.type == "string"
+					or (tokNext.type == "punctuation" and isAny(tokNext.value, "{",".",":"))
+				)) then
 					errorAtToken(fileBuffers, identTok, identTok.position+#identTok.representation, "Macro", "Syntax error: Expected '(' after macro name '%s'.", identTok.value)
 				end
 
@@ -2032,16 +2036,6 @@ end
 
 local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNested)
 	-- @Robustness: Make sure key tokens came from the same source file.
-	local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
-
-	if not isTokenAndNotNil(tokNext, "identifier") then
-		printErrorTraceback("Internal error.")
-		errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", (tokNext and tokNext.type or "?"))
-	end
-
-	local identTok = tokNext
-	popTokens(tokenStack, iNext) -- the identifier
-
 	-- Add '!!(' for start of preprocessor block.
 	if isNested then
 		tableInsert(tokens, newTokenAt({type="identifier", value="__ASSERTLUA", representation="__ASSERTLUA"}, macroStartTok))
@@ -2050,16 +2044,45 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 	end
 	tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, macroStartTok))
 
+	-- Add 'ident' for start of (or whole) callee.
+	local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
+	if not isTokenAndNotNil(tokNext, "identifier") then
+		printErrorTraceback("Internal error.")
+		errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", (tokNext and tokNext.type or "?"))
+	end
+	popTokens(tokenStack, iNext) -- the identifier
+	tableInsert(tokens, tokNext)
+	local lastCalleeTok = tokNext
+
+	-- Maybe add '.field:method' for end of callee.
+	-- @Incomplete: @@name[expr]()
 	tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+
+	while isTokenAndNotNil(tokNext, "punctuation") and (tokNext.value == "." or tokNext.value == ":") do
+		local punctTok     = tokNext
+		local isMethodCall = (punctTok.value == ":")
+
+		popTokens(tokenStack, iNext) -- '.' or ':'
+		tableInsert(tokens, tokNext)
+
+		tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+		if not tokNext then
+			errorAfterToken(fileBuffers, punctTok, "Macro", "Syntax error: Expected an identifier after '%s'.", punctTok.value)
+		end
+		popTokens(tokenStack, iNext) -- the identifier
+		tableInsert(tokens, tokNext)
+		lastCalleeTok = tokNext
+
+		tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+		if isMethodCall then  break  end
+	end
 
 	-- @insert identifier " ... "
 	if isTokenAndNotNil(tokNext, "string") then
 		local stringTok = tokNext
 		popTokens(tokenStack, iNext) -- the string
 
-		-- Add 'ident' for start of call. We don't need parenthesis for this macro variant.
-		tableInsert(tokens, identTok)
-
+		-- Note: We don't need parenthesis for this macro variant.
 		stringTok.value          = stringTok.representation
 		stringTok.representation = F("%q", stringTok.value):gsub("\n", "n")
 		tableInsert(tokens, stringTok)
@@ -2072,9 +2095,8 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 		-- (Similar code as `@insert identifier()` below.)
 		--
 
-		-- Add 'ident(' for start of call.
-		tableInsert(tokens, identTok)
-		tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, identTok))
+		-- Add '(' for start of call.
+		tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, tokNext))
 
 		-- Collect tokens for the table arg.
 		-- We're looking for the closing '}'.
@@ -2153,14 +2175,15 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 	else
 		if not isTokenAndNotNil(tokNext, "punctuation", "(") then
 			printErrorTraceback("Internal error.")
-			errorAtToken(fileBuffers, tokNext, nil, "Macro", "Internal error. (%s)", (tokNext and tokNext.type or "?"))
+			errorAfterToken(fileBuffers, lastCalleeTok, "Macro", "Syntax error: Expected '(' after macro name.")
+		elseif isTokenAndNotNil(tokenStack[iNext+1], "whitespace") and tokenStack[iNext+1].value:find"\n" then
+			errorAtToken(fileBuffers, tokNext, nil, "Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
 		end
 
 		local parensStartTok = tokNext
 		popTokens(tokenStack, iNext) -- '('
 
-		-- Add 'ident(' for start of call.
-		tableInsert(tokens, identTok)
+		-- Add '(' for start of call.
 		tableInsert(tokens, parensStartTok)
 
 		tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
@@ -2943,7 +2966,7 @@ local pp = {
 	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
@@ -2969,7 +2992,7 @@ local pp = {
 	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" statement. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
+	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--

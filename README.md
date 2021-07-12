@@ -21,13 +21,14 @@ A separate [command line program](preprocess-cl.lua) is available too.
 - [Usage](#usage)
 	- [Library](#preprocess-files-using-the-library)
 	- [Command Line](#preprocess-files-from-the-command-line)
-- [Documentation](https://github.com/ReFreezed/LuaPreprocess/wiki)
+- [Documentation](http://luapreprocess.refreezed.com/docs/)
 - [Help](#help)
 
 
 
 ## Example Program
-The exclamation mark (!) is used to indicate what code is part of the metaprogram.
+
+The exclamation mark (`!`) is used to indicate what code is part of the metaprogram.
 ([See screenshot of processing steps with highlighting](https://raw.githubusercontent.com/ReFreezed/LuaPreprocess/master/misc/processingSteps.png))
 
 ```lua
@@ -75,6 +76,7 @@ local text = !("Precalculated hash: "..getHash())
 ```
 
 #### Output
+
 ```lua
 -- Normal Lua.
 local n = 0
@@ -111,13 +113,15 @@ See the [examples folder](examples) for more.
 
 
 ## Usage
-First you need [Lua](https://www.lua.org/versions.html) installed on your system. (Binaries can be
+
+First you need [Lua](https://www.lua.org/) installed on your system. (Binaries can be
 downloaded from [LuaBinaries via SourceForge](https://sourceforge.net/projects/luabinaries/files/5.1.5/Tools%20Executables/)
 if you don't want to, or can't, compile Lua from source. For Windows I can recommend installing
 [LuaForWindows](https://github.com/rjpcomputing/luaforwindows) which is a "batteries included" Lua package.)
 
 
 ### Preprocess Files Using the Library
+
 ```lua
 local pp = require("preprocess")
 
@@ -134,13 +138,14 @@ end
 print("Lines of code processed: "..info.lineCount)
 ```
 
-See the [wiki](https://github.com/ReFreezed/LuaPreprocess/wiki)
+See the [website](http://luapreprocess.refreezed.com/docs/)
 or the top of [preprocess.lua](preprocess.lua) for documentation.
 
 
 ### Preprocess Files from the Command Line
 
 #### Windows
+
 ```batch
 Preprocess.cmd [options] filepath1 [filepath2 ...]
 OR
@@ -148,6 +153,7 @@ Preprocess.cmd --outputpaths [options] inputpath1 outputpath1 [inputpath2 output
 ```
 
 #### Any System
+
 ```batch
 lua preprocess-cl.lua [options] filepath1 [filepath2 ...]
 OR
@@ -156,20 +162,22 @@ lua preprocess-cl.lua --outputpaths [options] inputpath1 outputpath1 [inputpath2
 
 If a filepath is, for example, `C:/MyApp/app.lua2p` then LuaPreprocess will write the processed file to `C:/MyApp/app.lua`.
 
-See the [wiki](https://github.com/ReFreezed/LuaPreprocess/wiki/Command-Line),
+See the [website](http://luapreprocess.refreezed.com/docs/command-line/),
 or the top of [preprocess-cl.lua](preprocess-cl.lua)
 and [preprocess.lua](preprocess.lua), for the options and more documentation.
 
 
 
 ## Documentation
-- [Wiki](https://github.com/ReFreezed/LuaPreprocess/wiki)
+
+- [Website](http://luapreprocess.refreezed.com/docs/)
 - Library: See the top of [preprocess.lua](preprocess.lua)
 - Command line: See the top of [preprocess-cl.lua](preprocess-cl.lua)
 
 
 
 ## Help
+
 Got a question?
 Look if someone has asked the question in the [issue tracker](https://github.com/ReFreezed/LuaPreprocess/issues?q=is%3Aissue),
 or [create a new issue](https://github.com/ReFreezed/LuaPreprocess/issues/new).

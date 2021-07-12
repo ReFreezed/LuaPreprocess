@@ -263,6 +263,22 @@ doTest("Macros", function()
 	]]})
 	assertCodeOutput(luaOut, [[t = {}]])
 
+	-- Macro with lookups.
+	local luaOut = assert(pp.processString{ code=[[
+		!t = {o={m=function(o,v)  return v  end}}
+		v = @@t.o:m(foo)
+	]]})
+	assertCodeOutput(luaOut, [[v = foo]])
+
+	assert(not pp.processString{ code=[[
+		!t = {o={m=function(o,v)  return v  end}}
+		v = @@t.(foo)
+	]]})
+	assert(not pp.processString{ code=[[
+		!t = {o={m=function(o,v)  return v  end}}
+		v = @@t.o:(foo)
+	]]})
+
 	-- Function as an argument.
 	local luaOut = assert(pp.processString{ code=[[
 		!function ECHO(v)  return v  end
@@ -308,6 +324,12 @@ doTest("Macros", function()
 		!function VOID()  return ""  end
 		v = @@VOID
 		() 1
+	]]})
+
+	assert(not pp.processString{ code=[[
+		!t = {o={m=function(o,v)  return v  end}}
+		v = @@t.o:m
+		(foo)
 	]]})
 
 	-- Invalid: Bad macro arguments format.
