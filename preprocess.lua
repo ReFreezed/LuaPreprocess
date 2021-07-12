@@ -1937,15 +1937,9 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 				local identTok = tokNext
 				tokNext, iNext = getNextUsableToken(tokenStack, iNext-1, nil, -1)
 
-				if isTokenAndNotNil(tokNext, "punctuation", "(") then
-					-- Apply the same 'ambiguous syntax' rule as Lua.
-					if isTokenAndNotNil(tokenStack[iNext+1], "whitespace") and tokenStack[iNext+1].value:find"\n" then
-						errorAtToken(fileBuffers, tokNext, nil, "Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
-					end
-
-				elseif not (tokNext and (
+				if not (tokNext and (
 					tokNext.type == "string"
-					or (tokNext.type == "punctuation" and isAny(tokNext.value, "{",".",":"))
+					or (tokNext.type == "punctuation" and isAny(tokNext.value, "(","{",".",":","["))
 				)) then
 					errorAtToken(fileBuffers, identTok, identTok.position+#identTok.representation, "Macro", "Syntax error: Expected '(' after macro name '%s'.", identTok.value)
 				end
@@ -2044,6 +2038,10 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 	end
 	tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, macroStartTok))
 
+	--
+	-- Callee.
+	--
+
 	-- Add 'ident' for start of (or whole) callee.
 	local tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack-1, nil, -1)
 	if not isTokenAndNotNil(tokNext, "identifier") then
@@ -2054,28 +2052,66 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 	tableInsert(tokens, tokNext)
 	local lastCalleeTok = tokNext
 
-	-- Maybe add '.field:method' for end of callee.
-	-- @Incomplete: @@name[expr]()
+	-- Maybe add '.field[expr]:method' for rest of callee.
 	tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
 
-	while isTokenAndNotNil(tokNext, "punctuation") and (tokNext.value == "." or tokNext.value == ":") do
-		local punctTok     = tokNext
-		local isMethodCall = (punctTok.value == ":")
+	while tokNext do
+		if isToken(tokNext, "punctuation", ".") or isToken(tokNext, "punctuation", ":") then
+			local punctTok = tokNext
+			popTokens(tokenStack, iNext) -- '.' or ':'
+			tableInsert(tokens, tokNext)
 
-		popTokens(tokenStack, iNext) -- '.' or ':'
-		tableInsert(tokens, tokNext)
+			tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+			if not tokNext then
+				errorAfterToken(fileBuffers, punctTok, "Macro", "Syntax error: Expected an identifier after '%s'.", punctTok.value)
+			end
+			popTokens(tokenStack, iNext) -- the identifier
+			tableInsert(tokens, tokNext)
 
-		tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
-		if not tokNext then
-			errorAfterToken(fileBuffers, punctTok, "Macro", "Syntax error: Expected an identifier after '%s'.", punctTok.value)
+			lastCalleeTok  = tokNext
+			tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+
+			if punctTok.value == ":" then  break  end
+
+		elseif isToken(tokNext, "punctuation", "[") then
+			local punctTok = tokNext
+			popTokens(tokenStack, iNext) -- '['
+			tableInsert(tokens, tokNext)
+
+			local bracketBalance = 1
+
+			while true do
+				tokNext = tableRemove(tokenStack) -- anything
+				if not tokNext then
+					errorAtToken(
+						fileBuffers, punctTok, nil, "Macro",
+						"Syntax error: Could not find matching bracket before EOF. (Macro starts %s)",
+						getRelativeLocationText(macroStartTok, punctTok)
+					)
+				end
+				tableInsert(tokens, tokNext)
+
+				if isToken(tokNext, "punctuation", "[") then
+					bracketBalance = bracketBalance + 1
+				elseif isToken(tokNext, "punctuation", "]") then
+					bracketBalance = bracketBalance - 1
+					if bracketBalance == 0 then  break  end
+				elseif tokNext.type:find"^pp_" then
+					errorAtToken(fileBuffers, tokNext, nil, "Macro", "Preprocessor token inside metaprogram/macro name expression (starting %s).", getRelativeLocationText(macroStartTok, tokNext))
+				end
+			end
+
+			lastCalleeTok  = tokNext
+			tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
+
+		else
+			break
 		end
-		popTokens(tokenStack, iNext) -- the identifier
-		tableInsert(tokens, tokNext)
-		lastCalleeTok = tokNext
-
-		tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
-		if isMethodCall then  break  end
 	end
+
+	--
+	-- Arguments.
+	--
 
 	-- @insert identifier " ... "
 	if isTokenAndNotNil(tokNext, "string") then
@@ -2172,11 +2208,9 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 		tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
 
 	-- @insert identifier ( argument1, ... )
-	else
-		if not isTokenAndNotNil(tokNext, "punctuation", "(") then
-			printErrorTraceback("Internal error.")
-			errorAfterToken(fileBuffers, lastCalleeTok, "Macro", "Syntax error: Expected '(' after macro name.")
-		elseif isTokenAndNotNil(tokenStack[iNext+1], "whitespace") and tokenStack[iNext+1].value:find"\n" then
+	elseif isTokenAndNotNil(tokNext, "punctuation", "(") then
+		-- Apply the same 'ambiguous syntax' rule as Lua.
+		if isTokenAndNotNil(tokenStack[iNext+1], "whitespace") and tokenStack[iNext+1].value:find"\n" then
 			errorAtToken(fileBuffers, tokNext, nil, "Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
 		end
 
@@ -2313,7 +2347,14 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 
 		-- Add ')' for end of call.
 		tableInsert(tokens, tableRemove(tokenStack)) -- ')'
+
+	else
+		errorAfterToken(fileBuffers, lastCalleeTok, "Macro", "Syntax error: Expected '(' after macro name.")
 	end
+
+	--
+	-- End.
+	--
 
 	-- Add ')' for end of preprocessor block.
 	tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))

@@ -134,6 +134,10 @@ local b = @@PASS_THROUGH( !!("2") )
 local c = @@PASS_THROUGH{ 1 + !(2) + 3 }
 local d = @@PASS_THROUGH(@@PASS_THROUGH{@@PASS_THROUGH( !!("1")!!("+")!!("2") )})
 
+!local t    = {field={object={method=function(obj, lua) return lua end}}}
+!local keys = {"object"}
+local  n    = @@t.field[keys[1]]:method(58)
+
 
 
 -- Misc.

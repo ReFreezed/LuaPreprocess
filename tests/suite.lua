@@ -263,19 +263,19 @@ doTest("Macros", function()
 	]]})
 	assertCodeOutput(luaOut, [[t = {}]])
 
-	-- Macro with lookups.
+	-- Macro name with lookups.
 	local luaOut = assert(pp.processString{ code=[[
-		!t = {o={m=function(o,v)  return v  end}}
-		v = @@t.o:m(foo)
+		!t, a = {t={o={m=function(o,v) return v end}}}, {"o"}
+		v = @@t.t[ a[1] ]:m(foo)
 	]]})
 	assertCodeOutput(luaOut, [[v = foo]])
 
 	assert(not pp.processString{ code=[[
-		!t = {o={m=function(o,v)  return v  end}}
+		!t = {f=function(v) return v end}
 		v = @@t.(foo)
 	]]})
 	assert(not pp.processString{ code=[[
-		!t = {o={m=function(o,v)  return v  end}}
+		!t = {o={m=function(o,v) return v end}}
 		v = @@t.o:(foo)
 	]]})
 
@@ -325,11 +325,17 @@ doTest("Macros", function()
 		v = @@VOID
 		() 1
 	]]})
-
 	assert(not pp.processString{ code=[[
-		!t = {o={m=function(o,v)  return v  end}}
+		!t = {o={m=function(o,v) return v end}}
 		v = @@t.o:m
 		(foo)
+	]]})
+
+	-- Invalid: Preprocessor code inside macro name expression.
+	assert(not pp.processString{ code=[[
+		!function bad()  return "f"  end
+		!t = {f=function(v) return v end}
+		v = @@t[ @@bad() ](foo)
 	]]})
 
 	-- Invalid: Bad macro arguments format.
