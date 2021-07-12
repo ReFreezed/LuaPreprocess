@@ -3,7 +3,6 @@ local/
 
 /*.sublime-*
 /.run
-/wiki/
 
 /tests/quickTest.lua
 /tests/quickTest.meta.lua

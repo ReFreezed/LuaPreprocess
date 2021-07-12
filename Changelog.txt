@@ -1,6 +1,14 @@
 Changelog
 LuaPreprocess
 
+v1.14 (2021-07-13)
+Library:
+- !(), !!() and @insert now work in macros.
+- Macro names can now contain lookups.
+- Updated string serialization, including for newToken("string").
+- Fixed error in output for '@line..""'.
+- Improved some error messages.
+
 v1.13.2 (2021-05-30)
 Command line program:
 - Fixed internal error when reporting a user error.

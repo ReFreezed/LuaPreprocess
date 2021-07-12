@@ -44,7 +44,7 @@
 	!...     The line will simply run during preprocessing. The line can span multiple actual lines if it contains brackets.
 	!!...    The line will appear in both the metaprogram and the final program. The line must be an assignment.
 	!(...)   The result of the parenthesis will be outputted as a literal if it's an expression, otherwise it'll just run.
-	!!(...)  The expression in the parenthesis will be outputted as Lua code. The expression must result in a string.
+	!!(...)  The result of the expression in the parenthesis will be outputted as Lua code. The result must be a string.
 
 	Short examples:
 
@@ -57,6 +57,9 @@
 	local bigNumber = !(5^10)
 
 	local font = !!(isDeveloper and "loadDevFont()" or "loadUserFont()")
+
+	-- See the full documentation for additional features:
+	-- http://luapreprocess.refreezed.com/docs/extra-functionality/
 
 ----------------------------------------------------------------
 
@@ -112,13 +115,14 @@
 	-- Though in this specific case a preprocessor line (without the parenthesis) would be nicer:
 	!func()
 
-	-- For the full documentation, see: http://luapreprocess.refreezed.com/docs/
+	-- For the full documentation, see:
+	-- http://luapreprocess.refreezed.com/docs/
 
 --============================================================]]
 
 
 
-local PP_VERSION = "1.13.2"
+local PP_VERSION = "1.14.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
