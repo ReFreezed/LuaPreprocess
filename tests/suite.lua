@@ -105,15 +105,22 @@ end)
 
 doTest("Generate code", function()
 	local pp = ppChunk()
-	local luaIn = [[
+
+	local luaOut = assert(pp.processString{ code=[[
 		!(
 		outputLua("local s = ")
 		outputValue("\n")
 		)
-	]]
-
-	local luaOut = assert(pp.processString{ code=luaIn })
+	]] })
 	assertCodeOutput(luaOut, [[local s = "\n"]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!(
+		outputLua("local s1, s2 = ")
+		outputValue("\001", "\0002")
+		)
+	]] })
+	assertCodeOutput(luaOut, [[local s1, s2 = "\1","\0002"]])
 end)
 
 doTest("Parsing extended preprocessor line", function()

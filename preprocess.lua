@@ -24,6 +24,7 @@
 	- toLua, serialize
 	Only during processing:
 	- getCurrentPathIn, getCurrentPathOut
+	- getOutputSoFar, getOutputSizeSoFar, getCurrentLineNumberInOutput
 	- outputValue, outputLua, outputLuaTemplate
 	Search this file for 'EnvironmentTable' for more info.
 
@@ -122,7 +123,7 @@
 
 
 
-local PP_VERSION = "1.14.0"
+local PP_VERSION = "1.14.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -201,7 +202,7 @@ local _concatTokens
 local _tokenize
 local assertarg
 local cleanError
-local copyTable
+local copyArray, copyTable
 local countString, countSubString
 local errorf, errorLine, errorfLine, errorOnLine, errorInFile, errorAtToken, errorAfterToken
 local errorIfNotRunningMeta
@@ -1089,6 +1090,14 @@ end
 
 
 
+function copyArray(t)
+	local copy = {}
+	for i, v in ipairs(table_name) do
+		copy[i] = v
+	end
+	return copy
+end
+
 -- copy = copyTable( table [, deep=false ] )
 do
 	local function deepCopy(t, copy, tableCopies)
@@ -1371,7 +1380,8 @@ end
 
 -- outputValue()
 --   Output one or more values, like strings or tables, as literals.
---   outputValue( value1, ... )
+--   outputValue( value )
+--   outputValue( value1, value2, ... ) -- Outputted values will be separated by commas.
 function metaFuncs.outputValue(...)
 	errorIfNotRunningMeta(2)
 
@@ -1386,6 +1396,10 @@ function metaFuncs.outputValue(...)
 		if v == nil and not canOutputNil then
 			local ln = debug.getinfo(2, "l").currentline
 			errorOnLine(metaPathForErrorMessages, ln, "MetaProgram", "Trying to output nil which is disallowed through params.canOutputNil .")
+		end
+
+		if i > 1 then
+			tableInsert(outputFromMeta, (isDebug and ", " or ","))
 		end
 
 		local ok, err = serialize(outputFromMeta, v)
@@ -1442,6 +1456,46 @@ function metaFuncs.outputLuaTemplate(lua, ...)
 	end)
 
 	tableInsert(outputFromMeta, lua)
+end
+
+-- getOutputSoFar()  @Doc
+--   Get Lua code that's been outputted so far.
+--   output = getOutputSoFar( [ asTable=false ] )
+--   If asTable is false then the full Lua code string is returned.
+--   If asTable is true then an array of Lua code segments is returned. (This avoids allocating, possibly large, strings.)
+function metaFuncs.getOutputSoFar(asTable)
+	errorIfNotRunningMeta(2)
+	return asTable and copyArray(outputFromMeta) or table.concat(outputFromMeta)
+end
+
+-- getOutputSizeSoFar()  @Doc
+--   Get the amount of bytes outputted so far.
+--   size = getOutputSizeSoFar( )
+function metaFuncs.getOutputSizeSoFar()
+	errorIfNotRunningMeta(2)
+
+	local size = 0
+
+	for _, lua in ipairs(outputFromMeta) do
+		size = size + #lua
+	end
+
+	return size
+end
+
+-- getCurrentLineNumberInOutput()  @Doc
+--   Get the current line number in the output.
+--   lineNumber = getCurrentLineNumberInOutput( )
+function metaFuncs.getCurrentLineNumberInOutput()
+	errorIfNotRunningMeta(2)
+
+	local ln = 1
+
+	for _, lua in ipairs(outputFromMeta) do
+		ln = ln + countString(lua, "\n", true)
+	end
+
+	return ln
 end
 
 -- getCurrentPathIn()

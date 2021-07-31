@@ -64,6 +64,9 @@ exec lua "$0" "$@"
 			an error happens when the metaprogram runs. This file is removed
 			if there's no error and --debug isn't enabled.
 
+		--nogc
+			Stop the garbage collector. This may speed up the preprocessing.
+
 		--nonil
 			Disallow !(...) and outputValue(...) from outputting nil.
 
@@ -316,6 +319,9 @@ for _, arg in ipairs(args) do
 
 	elseif arg == "--faststrings" then
 		fastStrings = true
+
+	elseif arg == "--nogc" then
+		collectgarbage("stop")
 
 	else
 		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
