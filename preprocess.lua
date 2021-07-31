@@ -1991,6 +1991,8 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 			-- @insert identifier ( argument1, ... )
 			-- @insert identifier " ... "
 			-- @insert identifier { ... }
+			-- @insert identifier !( ... )
+			-- @insert identifier !!( ... )
 			elseif ppKeywordTok.value == "insert" and isTokenAndNotNil(tokNext, "identifier") and tokNext.file == ppKeywordTok.file then
 				local identTok = tokNext
 				tokNext, iNext = getNextUsableToken(tokenStack, iNext-1, nil, -1)
@@ -1998,6 +2000,7 @@ local function doLateExpansionsResources(tokensToExpand, fileBuffers, params, st
 				if not (tokNext and (
 					tokNext.type == "string"
 					or (tokNext.type == "punctuation" and isAny(tokNext.value, "(","{",".",":","["))
+					or tokNext.type == "pp_entry"
 				)) then
 					errorAtToken(fileBuffers, identTok, identTok.position+#identTok.representation, "Macro", "Syntax error: Expected '(' after macro name '%s'.", identTok.value)
 				end
@@ -2406,6 +2409,24 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 		-- Add ')' for end of call.
 		tableInsert(tokens, tableRemove(tokenStack)) -- ')'
 
+	-- @insert identifier !( ... )
+	-- @insert identifier !!( ... )
+	elseif isTokenAndNotNil(tokNext, "pp_entry") then
+		popTokens(tokenStack, iNext+1) -- until '!' or '!!'
+
+		-- Add '(' for start of call.
+		if not isTokenAndNotNil(tokenStack[#tokenStack-1], "punctuation", "(") then
+			local tok = (tokenStack[#tokenStack-1] or tokenStack[#tokenStack])
+			errorAtToken(fileBuffers, tok, nil, "Macro", "Expected '(' after '!'.")
+		end
+		tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, tokNext))
+
+		processPreprocessorBlockInMacroArgument(tokens, fileBuffers, tokenStack)
+
+		-- Add ')' for end of call.
+		assert(isTokenAndNotNil(tokens[#tokens], "punctuation", ")"))
+		tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
+
 	else
 		errorAfterToken(fileBuffers, lastCalleeTok, "Macro", "Syntax error: Expected '(' after macro name.")
 	end
@@ -2424,6 +2445,8 @@ local function doLateExpansionsMacros(tokensToExpand, fileBuffers, params, stats
 	--   @insert identifier ( argument1, ... )
 	--   @insert identifier " ... "
 	--   @insert identifier { ... }
+	--   @insert identifier !( ... )
+	--   @insert identifier !!( ... )
 	--
 	if not stats.hasPreprocessorCode then
 		return tokensToExpand
@@ -2446,6 +2469,8 @@ local function doLateExpansionsMacros(tokensToExpand, fileBuffers, params, stats
 			-- @insert identifier ( argument1, ... )
 			-- @insert identifier " ... "
 			-- @insert identifier { ... }
+			-- @insert identifier !( ... )
+			-- @insert identifier !!( ... )
 			if ppKeywordTok.value == "insert" then
 				expandMacro(tokens, fileBuffers, tokenStack, ppKeywordTok, false)
 

@@ -138,6 +138,10 @@ local d = @@PASS_THROUGH(@@PASS_THROUGH{@@PASS_THROUGH( !!("1")!!("+")!!("2") )}
 !local keys = {"object"}
 local  n    = @@t.field[keys[1]]:method(58)
 
+!local function ADD1(lua)  return lua.."+1"  end
+local n1 = @@ADD1!(43-2)
+local n2 = @@ADD1!!("43-2")
+
 
 
 -- Misc.
