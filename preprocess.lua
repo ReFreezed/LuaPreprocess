@@ -123,7 +123,7 @@
 
 
 
-local PP_VERSION = "1.14.0-dev"
+local PP_VERSION = "1.15.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -1312,45 +1312,46 @@ metaEnv._G = metaEnv
 local metaFuncs = {}
 
 -- printf()
---   Print a formatted string.
 --   printf( format, value1, ... )
+--   Print a formatted string.
 metaFuncs.printf = printf
 
 -- getFileContents()
---   Get the entire contents of a binary file or text file. Returns nil and a message on error.
 --   contents = getFileContents( path [, isTextFile=false ] )
+--   Get the entire contents of a binary file or text file. Returns nil and a message on error.
 metaFuncs.getFileContents = getFileContents
 
 -- fileExists()
---   Check if a file exists.
 --   bool = fileExists( path )
+--   Check if a file exists.
 metaFuncs.fileExists = fileExists
 
 -- toLua()
+--   luaString = toLua( value )
 --   Convert a value to a Lua literal. Does not work with certain types, like functions or userdata.
 --   Returns nil and a message on error.
---   luaString = toLua( value )
 metaFuncs.toLua = toLua
 
 -- serialize()
---   Same as toLua() except adds the result to an array instead of returning the Lua code as a string.
 --   success, error = serialize( buffer, value )
+--   Same as toLua() except adds the result to an array instead of returning the Lua code as a string.
+--   This could avoid allocating unnecessary strings.
 metaFuncs.serialize = serialize
 
 -- escapePattern()
---   Escape a string so it can be used in a pattern as plain text.
 --   escapedString = escapePattern( string )
+--   Escape a string so it can be used in a pattern as plain text.
 metaFuncs.escapePattern = escapePattern
 
 -- isToken()
---   Check if a token is of a specific type, optionally also check it's value.
 --   bool = isToken( token, tokenType [, tokenValue=any ] )
+--   Check if a token is of a specific type, optionally also check it's value.
 metaFuncs.isToken = isToken
 
 -- copyTable()
+--   copy = copyTable( table [, deep=false ] )
 --   Copy a table, optionally recursively (deep copy).
 --   Multiple references to the same table and self-references are preserved during deep copying.
---   copy = copyTable( table [, deep=false ] )
 metaFuncs.copyTable = copyTable
 
 -- unpack()
@@ -1365,8 +1366,8 @@ metaFuncs.unpack = unpack
 metaFuncs.pack = pack
 
 -- run()
---   Execute a Lua file. Similar to dofile().
 --   returnValue1, ... = run( path [, arg1, ... ] )
+--   Execute a Lua file. Similar to dofile().
 function metaFuncs.run(path, ...)
 	assertarg(1, path, "string")
 
@@ -1379,9 +1380,10 @@ function metaFuncs.run(path, ...)
 end
 
 -- outputValue()
---   Output one or more values, like strings or tables, as literals.
 --   outputValue( value )
 --   outputValue( value1, value2, ... ) -- Outputted values will be separated by commas.
+--   Output one or more values, like strings or tables, as literals.
+--   Raises an error if no file or string is being processed.
 function metaFuncs.outputValue(...)
 	errorIfNotRunningMeta(2)
 
@@ -1412,8 +1414,9 @@ function metaFuncs.outputValue(...)
 end
 
 -- outputLua()
---   Output one or more strings as raw Lua code.
 --   outputLua( luaString1, ... )
+--   Output one or more strings as raw Lua code.
+--   Raises an error if no file or string is being processed.
 function metaFuncs.outputLua(...)
 	errorIfNotRunningMeta(2)
 
@@ -1430,9 +1433,10 @@ function metaFuncs.outputLua(...)
 end
 
 -- outputLuaTemplate()
+--   outputLuaTemplate( luaStringTemplate, value1, ... )
 --   Use a string as a template for outputting Lua code with values.
 --   Question marks (?) are replaced with the values.
---   outputLuaTemplate( luaStringTemplate, value1, ... )
+--   Raises an error if no file or string is being processed.
 --   Examples:
 --     outputLuaTemplate("local name, age = ?, ?", "Harry", 48)
 --     outputLuaTemplate("dogs[?] = ?", "greyhound", {italian=false, count=5})
@@ -1458,19 +1462,21 @@ function metaFuncs.outputLuaTemplate(lua, ...)
 	tableInsert(outputFromMeta, lua)
 end
 
--- getOutputSoFar()  @Doc
+-- getOutputSoFar()
+--   luaString = getOutputSoFar( [ asTable=false ] )
 --   Get Lua code that's been outputted so far.
---   output = getOutputSoFar( [ asTable=false ] )
 --   If asTable is false then the full Lua code string is returned.
 --   If asTable is true then an array of Lua code segments is returned. (This avoids allocating, possibly large, strings.)
+--   Raises an error if no file or string is being processed.
 function metaFuncs.getOutputSoFar(asTable)
 	errorIfNotRunningMeta(2)
 	return asTable and copyArray(outputFromMeta) or table.concat(outputFromMeta)
 end
 
--- getOutputSizeSoFar()  @Doc
---   Get the amount of bytes outputted so far.
+-- getOutputSizeSoFar()
 --   size = getOutputSizeSoFar( )
+--   Get the amount of bytes outputted so far.
+--   Raises an error if no file or string is being processed.
 function metaFuncs.getOutputSizeSoFar()
 	errorIfNotRunningMeta(2)
 
@@ -1483,9 +1489,9 @@ function metaFuncs.getOutputSizeSoFar()
 	return size
 end
 
--- getCurrentLineNumberInOutput()  @Doc
---   Get the current line number in the output.
+-- getCurrentLineNumberInOutput()
 --   lineNumber = getCurrentLineNumberInOutput( )
+--   Get the current line number in the output.
 function metaFuncs.getCurrentLineNumberInOutput()
 	errorIfNotRunningMeta(2)
 
@@ -1499,27 +1505,27 @@ function metaFuncs.getCurrentLineNumberInOutput()
 end
 
 -- getCurrentPathIn()
---   Get what file is currently being processed, if any.
 --   path = getCurrentPathIn( )
+--   Get what file is currently being processed, if any.
 function metaFuncs.getCurrentPathIn()
 	return currentPathIn
 end
 
 -- getCurrentPathOut()
---   Get what file the currently processed file will be written to, if any.
 --   path = getCurrentPathOut( )
+--   Get what file the currently processed file will be written to, if any.
 function metaFuncs.getCurrentPathOut()
 	return currentPathOut
 end
 
 -- tokenize()
---   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
 --   tokens = tokenize( luaString [, allowPreprocessorCode=false ] )
 --   token = {
 --     type=tokenType, representation=representation, value=value,
 --     line=lineNumber, lineEnd=lineNumber, position=bytePosition, file=filePath,
 --     ...
 --   }
+--   Convert Lua code to tokens. Returns nil and a message on error. (See newToken() for token types.)
 function metaFuncs.tokenize(lua, allowPpCode)
 	local ok, errOrTokens = pcall(_tokenize, lua, "<string>", allowPpCode, allowPpCode, true) -- @Incomplete: Make allowJitSyntax a parameter to tokenize()?
 	if not ok then
@@ -1529,8 +1535,8 @@ function metaFuncs.tokenize(lua, allowPpCode)
 end
 
 -- removeUselessTokens()
---   Remove whitespace and comment tokens.
 --   removeUselessTokens( tokens )
+--   Remove whitespace and comment tokens.
 function metaFuncs.removeUselessTokens(tokens)
 	local len    = #tokens
 	local offset = 0
@@ -1549,8 +1555,8 @@ function metaFuncs.removeUselessTokens(tokens)
 end
 
 -- eachToken()
---   Loop through tokens.
 --   for index, token in eachToken( tokens [, ignoreUselessTokens=false ] ) do
+--   Loop through tokens.
 local function nextUsefulToken(tokens, i)
 	while true do
 		i = i+1
@@ -1568,8 +1574,8 @@ function metaFuncs.eachToken(tokens, ignoreUselessTokens)
 end
 
 -- getNextUsefulToken()
---   Get the next token that isn't a whitespace or comment. Returns nil if no more tokens are found.
 --   token, index = getNextUsefulToken( tokens, startIndex [, steps=1 ] )
+--   Get the next token that isn't a whitespace or comment. Returns nil if no more tokens are found.
 --   Specify a negative steps value to get an earlier token.
 function metaFuncs.getNextUsefulToken(tokens, i1, steps)
 	steps = (steps or 1)
@@ -1611,8 +1617,8 @@ local numberFormatters = {
 }
 
 -- newToken()
---   Create a new token. Different token types take different arguments.
 --   token = newToken( tokenType, ... )
+--   Create a new token. Different token types take different arguments.
 --
 --   commentToken     = newToken( "comment",     contents [, forceLongForm=false ] )
 --   identifierToken  = newToken( "identifier",  identifier )
@@ -1780,8 +1786,8 @@ function metaFuncs.newToken(tokType, ...)
 end
 
 -- concatTokens()
---   Concatinate tokens by their representations.
 --   luaString = concatTokens( tokens )
+--   Concatenate tokens by their representations.
 function metaFuncs.concatTokens(tokens)
 	return _concatTokens(tokens, nil, false, nil, nil)
 end

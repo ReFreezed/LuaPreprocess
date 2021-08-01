@@ -1,6 +1,15 @@
 Changelog
 LuaPreprocess
 
+v1.15 (2021-08-01)
+Library:
+- Added functions: getOutputSoFar(), getOutputSizeSoFar(), getCurrentLineNumberInOutput().
+- outputValue() with multiple values will now output commas between the values.
+- Added '@insert func!(...)' as syntax sugar for '@insert func(!(...))'.
+- Added '@insert func!!(...)' as syntax sugar for '@insert func(!!(...))'.
+Command line program:
+- Added --nogc option.
+
 v1.14 (2021-07-13)
 Library:
 - !(), !!() and @insert now work in macros.

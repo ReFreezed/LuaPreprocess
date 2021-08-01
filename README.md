@@ -179,7 +179,10 @@ and [preprocess.lua](preprocess.lua), for the options and more documentation.
 ## Help
 
 Got a question?
-Look if someone has asked the question in the [issue tracker](https://github.com/ReFreezed/LuaPreprocess/issues?q=is%3Aissue),
+If the [documentation](http://luapreprocess.refreezed.com/docs/) doesn't have the answer,
+look if someone has asked the question in the [issue tracker](https://github.com/ReFreezed/LuaPreprocess/issues?q=is%3Aissue),
 or [create a new issue](https://github.com/ReFreezed/LuaPreprocess/issues/new).
+
+Also check out the online [syntax highlighter](http://luapreprocess.refreezed.com/highlight/) tool to help visualize errors in code.
 
 
