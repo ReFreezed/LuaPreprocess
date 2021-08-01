@@ -1092,7 +1092,7 @@ end
 
 function copyArray(t)
 	local copy = {}
-	for i, v in ipairs(table_name) do
+	for i, v in ipairs(t) do
 		copy[i] = v
 	end
 	return copy
