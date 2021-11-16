@@ -26,6 +26,7 @@
 	- getCurrentPathIn, getCurrentPathOut
 	- getOutputSoFar, getOutputSizeSoFar, getCurrentLineNumberInOutput
 	- outputValue, outputLua, outputLuaTemplate
+	- startInterceptingOutput, stopInterceptingOutput
 	Search this file for 'EnvironmentTable' for more info.
 
 	Exported stuff from the library:
@@ -188,7 +189,8 @@ local isRunningMeta            = false
 local currentPathIn            = ""
 local currentPathOut           = ""
 local metaPathForErrorMessages = ""
-local outputFromMeta           = nil
+local outputFromMetaStack      = nil
+local outputFromMeta           = nil -- Top item in outputFromMetaStack.
 local canOutputNil             = true
 local fastStrings              = false
 
@@ -1321,6 +1323,8 @@ end
 
 
 -- :EnvironmentTable
+----------------------------------------------------------------
+
 metaEnv = copyTable(_G, true) -- Include all standard Lua stuff.
 metaEnv._G = metaEnv
 
@@ -1485,7 +1489,7 @@ end
 --   Raises an error if no file or string is being processed.
 function metaFuncs.getOutputSoFar(asTable)
 	errorIfNotRunningMeta(2)
-	return asTable and copyArray(outputFromMeta) or table.concat(outputFromMeta)
+	return asTable and copyArray(outputFromMetaStack[1]) or table.concat(outputFromMetaStack[1]) -- Should there be a way to get the contents of outputFromMeta etc.? :GetMoreOutputFromStack
 end
 
 -- getOutputSizeSoFar()
@@ -1497,7 +1501,7 @@ function metaFuncs.getOutputSizeSoFar()
 
 	local size = 0
 
-	for _, lua in ipairs(outputFromMeta) do
+	for _, lua in ipairs(outputFromMetaStack[1]) do -- :GetMoreOutputFromStack
 		size = size + #lua
 	end
 
@@ -1512,7 +1516,7 @@ function metaFuncs.getCurrentLineNumberInOutput()
 
 	local ln = 1
 
-	for _, lua in ipairs(outputFromMeta) do
+	for _, lua in ipairs(outputFromMetaStack[1]) do -- :GetMoreOutputFromStack
 		ln = ln + countString(lua, "\n", true)
 	end
 
@@ -1825,8 +1829,33 @@ function metaFuncs.concatTokens(tokens)
 	return _concatTokens(tokens, nil, false, nil, nil)
 end
 
+-- startInterceptingOutput()
+--   startInterceptingOutput( )
+--   Start intercepting output until stopInterceptingOutput() is called.
+--   The function can be called multiple times to intercept interceptions.
+function metaFuncs.startInterceptingOutput()
+	errorIfNotRunningMeta(2)
+
+	outputFromMeta = {}
+	tableInsert(outputFromMetaStack, outputFromMeta)
+end
+
+-- stopInterceptingOutput()
+--   luaString = stopInterceptingOutput( )
+--   Stop intercepting output.
+function metaFuncs.stopInterceptingOutput()
+	errorIfNotRunningMeta(2)
+
+	local interceptedLua = tableRemove(outputFromMetaStack)
+	outputFromMeta       = outputFromMetaStack[#outputFromMetaStack] or error("Called stopInterceptingOutput() before calling startInterceptingOutput()", 2)
+
+	return table.concat(interceptedLua)
+end
+
 -- Extra stuff used by the command line program:
 metaFuncs.tryToFormatError = tryToFormatError
+
+----------------------------------------------------------------
 
 
 
@@ -1843,6 +1872,23 @@ function metaEnv.__ASSERTLUA(lua)
 		error("Value is not Lua code.", 2)
 	end
 	return lua
+end
+
+local function finalizeMacro(lua)
+	if lua == nil then
+		return (metaFuncs.stopInterceptingOutput())
+	elseif type(lua) ~= "string" then
+		error("[Macro] Value is not Lua code.", 2)
+	elseif outputFromMeta[1] then
+		error("[Macro] Got Lua code from both value expression and outputLua(). Only one method may be used.", 2) -- It's also possible interception calls are unbalanced.
+	else
+		metaFuncs.stopInterceptingOutput() -- Returns "" because nothing was outputted.
+		return lua
+	end
+end
+function metaEnv.__MACRO()
+	metaFuncs.startInterceptingOutput()
+	return finalizeMacro
 end
 
 function metaEnv.__EVALSYMBOL(v)
@@ -2152,13 +2198,18 @@ end
 
 local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNested)
 	-- @Robustness: Make sure key tokens came from the same source file.
+
 	-- Add '!!(' for start of preprocessor block.
-	if isNested then
-		tableInsert(tokens, newTokenAt({type="identifier", value="__ASSERTLUA", representation="__ASSERTLUA"}, macroStartTok))
-	else
-		tableInsert(tokens, newTokenAt({type="pp_entry", value="!!", representation="!!", double=true}, macroStartTok))
+	if not isNested then
+		tableInsert(tokens, newTokenAt({type="pp_entry",    value="!!", representation="!!", double=true}, macroStartTok))
+		tableInsert(tokens, newTokenAt({type="punctuation", value="(",  representation="("              }, macroStartTok))
 	end
-	tableInsert(tokens, newTokenAt({type="punctuation", value="(", representation="("}, macroStartTok))
+
+	-- Start macro wrapper.
+	tableInsert(tokens, newTokenAt({type="identifier",  value="__MACRO",      representation="__MACRO"     }, macroStartTok))
+	tableInsert(tokens, newTokenAt({type="punctuation", value="(",            representation="("           }, macroStartTok))
+	tableInsert(tokens, newTokenAt({type="punctuation", value=")",            representation=")"           }, macroStartTok))
+	tableInsert(tokens, newTokenAt({type="punctuation", value="(",            representation="("           }, macroStartTok))
 
 	--
 	-- Callee.
@@ -2496,8 +2547,13 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 	-- End.
 	--
 
-	-- Add ')' for end of preprocessor block.
+	-- End macro wrapper.
 	tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
+
+	-- Add ')' for end of preprocessor block.
+	if not isNested then
+		tableInsert(tokens, newTokenAt({type="punctuation", value=")", representation=")"}, tokens[#tokens]))
+	end
 end
 
 local function doLateExpansionsMacros(tokensToExpand, fileBuffers, params, stats)
@@ -2969,6 +3025,7 @@ local function _processFileOrString(params, isFile)
 
 	metaPathForErrorMessages = params.pathMeta or "<meta>"
 	outputFromMeta           = {}
+	outputFromMetaStack      = {outputFromMeta}
 	canOutputNil             = params.canOutputNil ~= false
 	fastStrings              = params.fastStrings
 
@@ -2994,6 +3051,10 @@ local function _processFileOrString(params, isFile)
 		os.remove(params.pathMeta)
 	end
 
+	if outputFromMetaStack[2] then
+		error("Called startInterceptingOutput() more times than stopInterceptingOutput().")
+	end
+
 	local lua = table.concat(outputFromMeta)
 	--[[ :PrintCode
 	print("=OUTPUT=============================")
@@ -3002,6 +3063,7 @@ local function _processFileOrString(params, isFile)
 	--]]
 
 	metaPathForErrorMessages = ""
+	outputFromMetaStack      = nil
 	outputFromMeta           = nil
 	canOutputNil             = true
 
@@ -3103,6 +3165,7 @@ local function processFileOrString(params, isFile)
 	currentPathIn            = ""
 	currentPathOut           = ""
 	metaPathForErrorMessages = ""
+	outputFromMetaStack      = nil
 	outputFromMeta           = nil
 	canOutputNil             = true
 	fastStrings              = false

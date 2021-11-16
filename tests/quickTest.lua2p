@@ -142,6 +142,18 @@ local  n    = @@t.field[keys[1]]:method(58)
 local n1 = @@ADD1!(43-2)
 local n2 = @@ADD1!!("43-2")
 
+!local function FOO1(x)  return x      end
+!local function FOO2(x)  outputLua(x)  end
+local x = 7
+local y = @@FOO1(x)
+local y = @@FOO2(x)
+
+!startInterceptingOutput()
+a          = some
+other      = 500921
+!local lua = stopInterceptingOutput():gsub("%a+", "%0Derp")
+!!(lua)
+
 
 
 -- Symbols.

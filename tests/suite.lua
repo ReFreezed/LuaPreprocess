@@ -369,6 +369,13 @@ doTest("Macros", function()
 
 	-- Invalid: Nested code block in macro.
 	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO( !!( !(1) ) )  ]]})
+
+	-- Using outputLua().
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function Y() return   ("y") end)  x = @@Y()  ]]}), [[x = y]])
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function Y() outputLua("y") end)  x = @@Y()  ]]}), [[x = y]])
+
+	-- Invalid: Both using outputLua() and returning code.
+	assert(not pp.processString{ code=[[  !(function Y() outputLua("y") ; return "z" end)  x = @@Y()  ]]})
 end)
 
 doTest("Preprocessor symbols", function()
@@ -512,6 +519,22 @@ doTest("Serialize", function()
 
 	local luaOut = assert(pp.toLua(t))
 	assertCodeOutput(luaOut, [[{a=2,f=176,z=99}]]) -- Note: Table keys should be sorted.
+end)
+
+doTest("Output interception", function()
+	local pp = ppChunk()
+
+	local luaOut = assert(pp.processString{ code=[[
+		!startInterceptingOutput()
+		local foo  = bar
+		!local lua = stopInterceptingOutput():gsub("(%a+) *= *(%a+)", "%2 = %1")
+		$lua
+	]] })
+	assertCodeOutput(luaOut, [[local bar = foo]])
+
+	-- Invalid: Unbalanced interception start/stop calls.
+	assert(not pp.processString{ code=[[ !startInterceptingOutput() ]]})
+	assert(not pp.processString{ code=[[ !stopInterceptingOutput()  ]]})
 end)
 
 

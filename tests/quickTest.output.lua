@@ -102,6 +102,13 @@ local n = 58
 local n1 = 41+1
 local n2 = 43-2+1
 
+local x = 7
+local y = x
+local y = x
+
+aDerp     = someDerp
+otherDerp = 500921
+
 
 
 -- Symbols
