@@ -176,6 +176,13 @@ doTest("Expression or not?", function()
 		!( x = math.floor(1.5) )
 	]]})
 	assertCodeOutput(luaOut, [[]])
+
+	-- Invalid: Comma-separated expressions are ambiguous.
+	assert(not pp.processString{ code=[[ x = !(1, 2)      ]]})
+	assert(not pp.processString{ code=[[ x = !!("a", "b") ]]})
+
+	-- Invalid: !!() must always have an expression.
+	assert(not pp.processString{ code=[[ !!( x = y ) ]]})
 end)
 
 doTest("Output values of different types", function()
@@ -364,6 +371,32 @@ doTest("Macros", function()
 	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO( !!( !(1) ) )  ]]})
 end)
 
+doTest("Preprocessor symbols", function()
+	local pp = ppChunk()
+
+	local luaOut = assert(pp.processString{ code=[[
+		!local FOO = "y"
+		x = $FOO
+	]]})
+	assertCodeOutput(luaOut, [[x = y]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!local function FOO()  return "y"  end
+		x = $FOO
+	]]})
+	assertCodeOutput(luaOut, [[x = y]])
+
+	-- Invalid: Symbols must result in strings.
+	assert(not pp.processString{ code=[[
+		!local BAD = 840
+		v = $BAD
+	]]})
+	assert(not pp.processString{ code=[[
+		!local function BAD()  return 840  end
+		v = $BAD
+	]]})
+end)
+
 
 
 addLabel("Library API")
@@ -388,6 +421,8 @@ doTest("Create tokens", function()
 
 	-- Identifier.
 	assertToken(pp.newToken("identifier", "foo"), "identifier", "foo", "foo", nil, nil)
+
+	assert(not pcall(pp.newToken, "identifier", "if"))
 
 	-- Keyword.
 	assertToken(pp.newToken("keyword", "if"), "keyword", "if", "if", nil, nil)
@@ -440,6 +475,13 @@ doTest("Create tokens", function()
 	assertToken(pp.newToken("pp_keyword", "@"   ), "pp_keyword", "insert", "@@",    nil, nil)
 
 	assert(not pcall(pp.newToken, "pp_keyword", "bad"))
+
+	-- Preprocessor symbol.
+	assertToken(pp.newToken("pp_symbol", "foo"), "pp_symbol", "foo", "$foo", nil, nil)
+
+	assert(not pcall(pp.newToken, "pp_symbol", ""))
+	assert(not pcall(pp.newToken, "pp_symbol", "if"))
+	assert(not pcall(pp.newToken, "pp_symbol", "$foo"))
 end)
 
 doTest("Get useful tokens", function()

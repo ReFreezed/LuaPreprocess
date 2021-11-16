@@ -144,6 +144,17 @@ local n2 = @@ADD1!!("43-2")
 
 
 
+-- Symbols.
+!local RANDOM = "math.random()"
+local rand    = $RANDOM
+
+!local function EQUATION()  return "x*3+y"  end
+local x = 5
+local y = 89
+local z = $EQUATION
+
+
+
 -- Misc.
 print(!("dataFromCommandLine: "..tostring(dataFromCommandLine)))
 print(!(("This file and line: %s:%d"):format(@file, @line)))

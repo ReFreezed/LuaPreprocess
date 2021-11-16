@@ -99,6 +99,19 @@ local d = {1+2}
 
 local n = 58
 
+local n1 = 41+1
+local n2 = 43-2+1
+
+
+
+-- Symbols
+
+local rand = math.random()
+
+local x = 5
+local y = 89
+local z = x*3+y
+
 
 
 -- Misc.

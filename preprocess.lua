@@ -123,7 +123,7 @@
 
 
 
-local PP_VERSION = "1.15.0"
+local PP_VERSION = "1.15.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -732,6 +732,21 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 				ptr = i2+1
 				tok = {type="pp_keyword", representation=repr, value=word}
 			end
+
+		-- Preprocessor symbol.
+		elseif s:find("^%$", ptr) then
+			if not allowPpTokens then
+				errorInFile(s, path, ptr, "Tokenizer", "Encountered preprocessor symbol. (Feature not enabled.)")
+			end
+
+			local i1, i2, repr, word = s:find("^(%$([%a_][%w_]*))", ptr)
+			if not i1 then
+				errorInFile(s, path, ptr+1, "Tokenizer", "Expected an identifier.")
+			elseif KEYWORDS[word] then
+				errorInFile(s, path, ptr+1, "Tokenizer", "Invalid preprocessor symbol '%s'. (Must not be a Lua keyword.)", word)
+			end
+			ptr = i2+1
+			tok = {type="pp_symbol", representation=repr, value=word}
 
 		else
 			errorInFile(s, path, ptr, "Tokenizer", "Unknown character.")
@@ -1629,6 +1644,7 @@ local numberFormatters = {
 --   whitespaceToken  = newToken( "whitespace",  contents )
 --   ppEntryToken     = newToken( "pp_entry",    isDouble )
 --   ppKeywordToken   = newToken( "pp_keyword",  ppKeyword ) -- ppKeyword can be "@".
+--   ppKeywordToken   = newToken( "pp_symbol",   identifier )
 --
 --   commentToken     = { type="comment",     representation=string, value=string, long=isLongForm }
 --   identifierToken  = { type="identifier",  representation=string, value=string }
@@ -1639,6 +1655,7 @@ local numberFormatters = {
 --   whitespaceToken  = { type="whitespace",  representation=string, value=string }
 --   ppEntryToken     = { type="pp_entry",    representation=string, value=string, double=isDouble }
 --   ppKeywordToken   = { type="pp_keyword",  representation=string, value=string }
+--   ppSymbolToken    = { type="pp_symbol",   representation=string, value=string }
 --
 -- Number formats:
 --   "integer"      E.g. 42
@@ -1684,6 +1701,8 @@ function metaFuncs.newToken(tokType, ...)
 			error("Identifier length is 0.", 2)
 		elseif not ident:find"^[%a_][%w_]*$" then
 			errorf(2, "Bad identifier format: '%s'", ident)
+		elseif KEYWORDS[ident] then
+			errorf(2, "Identifier must not be a keyword: '%s'", ident)
 		end
 
 		return {type="identifier", representation=ident, value=ident}
@@ -1780,6 +1799,20 @@ function metaFuncs.newToken(tokType, ...)
 			return {type="pp_keyword", representation="@"..keyword, value=keyword}
 		end
 
+	elseif tokType == "pp_symbol" then
+		local ident = ...
+		assertarg(2, ident, "string")
+
+		if ident == "" then
+			error("Identifier length is 0.", 2)
+		elseif not ident:find"^[%a_][%w_]*$" then
+			errorf(2, "Bad identifier format: '%s'", ident)
+		elseif KEYWORDS[ident] then
+			errorf(2, "Identifier must not be a keyword: '%s'", ident)
+		else
+			return {type="pp_symbol", representation="$"..ident, value=ident}
+		end
+
 	else
 		errorf(2, "Invalid token type '%s'.", tostring(tokType))
 	end
@@ -1810,6 +1843,13 @@ function metaEnv.__ASSERTLUA(lua)
 		error("Value is not Lua code.", 2)
 	end
 	return lua
+end
+
+function metaEnv.__EVALSYMBOL(v)
+	if type(v) == "function" then
+		v = v()
+	end
+	return v
 end
 
 
@@ -1861,6 +1901,7 @@ local function doEarlyExpansions(tokensToExpand, fileBuffers, params, stats)
 	--   @file
 	--   @line
 	--   ` ... `
+	--   $symbol
 	--
 	if not stats.hasPreprocessorCode then
 		return tokensToExpand
@@ -1902,6 +1943,20 @@ local function doEarlyExpansions(tokensToExpand, fileBuffers, params, stats)
 
 			tableInsert(tokens, stringTok)
 			tableRemove(tokenStack) -- the string
+
+		-- Symbol. (Should this expand later? Does it matter?)
+		elseif isToken(tok, "pp_symbol") then
+			local ppSymbolTok = tok
+
+			-- $symbol
+			tableRemove(tokenStack) -- '$symbol'
+			tableInsert(tokens, newTokenAt({type="pp_entry",    value="!!",              representation="!!", double=true}, ppSymbolTok))
+			tableInsert(tokens, newTokenAt({type="punctuation", value="(",               representation="("              }, ppSymbolTok))
+			tableInsert(tokens, newTokenAt({type="identifier",  value="__EVALSYMBOL",    representation="__EVALSYMBOL"   }, ppSymbolTok))
+			tableInsert(tokens, newTokenAt({type="punctuation", value="(",               representation="("              }, ppSymbolTok))
+			tableInsert(tokens, newTokenAt({type="identifier",  value=ppSymbolTok.value, representation=ppSymbolTok.value}, ppSymbolTok))
+			tableInsert(tokens, newTokenAt({type="punctuation", value=")",               representation=")"              }, ppSymbolTok))
+			tableInsert(tokens, newTokenAt({type="punctuation", value=")",               representation=")"              }, ppSymbolTok))
 
 		-- Anything else.
 		else
@@ -2549,7 +2604,7 @@ local function _processFileOrString(params, isFile)
 	}
 
 	for _, tok in ipairs(tokens) do
-		if isToken(tok, "pp_entry") or isToken(tok, "pp_keyword", "insert") then
+		if isToken(tok, "pp_entry") or isToken(tok, "pp_keyword", "insert") or isToken(tok, "pp_symbol") then
 			stats.hasPreprocessorCode = true
 			stats.hasMetaprogram      = true
 			break
@@ -2856,6 +2911,9 @@ local function _processFileOrString(params, isFile)
 				tableInsert(metaParts, (doOutputLua and "__LUA((" or "__VAL(("))
 				tableInsert(metaParts, metaBlock)
 				tableInsert(metaParts, "))\n")
+
+			elseif metaBlock:find(",", 1, true) and loadLuaString("return'',"..metaBlock) then
+				errorAfterToken(fileBuffers, tokens[startIndex+1], "Parser", "Ambiguous preprocessor block contents. (Comma-separated lists are not supported here.)")
 
 			elseif doOutputLua then
 				-- We could do something other than error here. Room for more functionality.
