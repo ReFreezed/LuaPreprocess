@@ -1,6 +1,13 @@
 Changelog
 LuaPreprocess
 
+v1.16 (2021-11-16)
+Library:
+- Added preprocessor symbols (in the form of '$name').
+- Added functions: startInterceptingOutput(), stopInterceptingOutput().
+- Macros can use outputLua() and co. instead of returning code.
+- Detecting errors such as !(x,y).
+
 v1.15 (2021-08-01)
 Library:
 - Added functions: getOutputSoFar(), getOutputSizeSoFar(), getCurrentLineNumberInOutput().

@@ -60,7 +60,7 @@
 
 	local font = !!(isDeveloper and "loadDevFont()" or "loadUserFont()")
 
-	-- See the full documentation for additional features:
+	-- See the full documentation for additional features (like macros):
 	-- http://luapreprocess.refreezed.com/docs/extra-functionality/
 
 ----------------------------------------------------------------
@@ -124,7 +124,7 @@
 
 
 
-local PP_VERSION = "1.15.0-dev"
+local PP_VERSION = "1.16.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -1842,7 +1842,7 @@ end
 
 -- stopInterceptingOutput()
 --   luaString = stopInterceptingOutput( )
---   Stop intercepting output.
+--   Stop intercepting output and retrieve collected code.
 function metaFuncs.stopInterceptingOutput()
 	errorIfNotRunningMeta(2)
 
