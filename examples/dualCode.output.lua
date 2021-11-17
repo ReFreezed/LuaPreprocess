@@ -9,8 +9,10 @@
 
 -- Assignments starting with !! will appear in both the metaprogram and the final output.
 local TEXT_HEIGHT    = 30
+
 local BUTTON_PADDING = 15
 local BUTTON_BORDER  = 2
+
 local BUTTON_WIDTH   = 400
 local BUTTON_HEIGHT  = 64
 

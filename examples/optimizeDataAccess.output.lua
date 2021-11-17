@@ -45,9 +45,11 @@ CHARACTERS_UNLOCKED_BY_DEFAULT = {
 	dev = true,
 }
 
+--
 -- Instead of iterating over the CHARACTERS array until we find
 -- the character with the specified ID, we use the maps above to
 -- get the information we want through a single table lookup.
+--
 function getCharacterName(charId)
 	return CHARACTER_NAMES[charId]
 end

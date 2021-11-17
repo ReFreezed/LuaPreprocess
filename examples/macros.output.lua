@@ -28,4 +28,7 @@ if not (i > 1 and i < 7) then  error("Invalid index. It must be 1<=i<=7 but is "
 -- itself in the message.
 if not (i > 1 and i < 7) then  error("Assertion failed: i > 1 and i < 7")  end
 
+-- Note that @insert can also be written as @@.
+if not (i > 1 and i < 7) then  error("Assertion failed: i > 1 and i < 7")  end
+
 print("'i' is all good!")

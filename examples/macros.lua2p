@@ -43,4 +43,7 @@ assert(i > 1 and i < 7, "Invalid index. It must be 1<=i<=7 but is "..i)
 -- itself in the message.
 @insert assert(i > 1 and i < 7)
 
+-- Note that @insert can also be written as @@.
+@@assert(i > 1 and i < 7)
+
 print("'i' is all good!")
