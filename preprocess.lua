@@ -124,7 +124,7 @@
 
 
 
-local PP_VERSION = "1.16.0"
+local PP_VERSION = "1.16.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -193,6 +193,8 @@ local outputFromMetaStack      = nil
 local outputFromMeta           = nil -- Top item in outputFromMetaStack.
 local canOutputNil             = true
 local fastStrings              = false
+local macroPrefix              = ""
+local macroSuffix              = ""
 
 
 
@@ -2206,10 +2208,10 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 	end
 
 	-- Start macro wrapper.
-	tableInsert(tokens, newTokenAt({type="identifier",  value="__MACRO",      representation="__MACRO"     }, macroStartTok))
-	tableInsert(tokens, newTokenAt({type="punctuation", value="(",            representation="("           }, macroStartTok))
-	tableInsert(tokens, newTokenAt({type="punctuation", value=")",            representation=")"           }, macroStartTok))
-	tableInsert(tokens, newTokenAt({type="punctuation", value="(",            representation="("           }, macroStartTok))
+	tableInsert(tokens, newTokenAt({type="identifier",  value="__MACRO", representation="__MACRO"}, macroStartTok))
+	tableInsert(tokens, newTokenAt({type="punctuation", value="(",       representation="("      }, macroStartTok))
+	tableInsert(tokens, newTokenAt({type="punctuation", value=")",       representation=")"      }, macroStartTok))
+	tableInsert(tokens, newTokenAt({type="punctuation", value="(",       representation="("      }, macroStartTok))
 
 	--
 	-- Callee.
@@ -2224,6 +2226,10 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 	popTokens(tokenStack, iNext) -- the identifier
 	tableInsert(tokens, tokNext)
 	local lastCalleeTok = tokNext
+
+	-- Add macro prefix and suffix. (Note: We only edit the initial identifier in the callee if there are more.)
+	lastCalleeTok.value          = macroPrefix .. lastCalleeTok.value .. macroSuffix
+	lastCalleeTok.representation = lastCalleeTok.value
 
 	-- Maybe add '.field[expr]:method' for rest of callee.
 	tokNext, iNext = getNextUsableToken(tokenStack, #tokenStack, nil, -1)
@@ -2670,10 +2676,16 @@ local function _processFileOrString(params, isFile)
 		end
 	end
 
+	macroPrefix = params.macroPrefix or ""
+	macroSuffix = params.macroSuffix or ""
+
 	tokens           = doEarlyExpansions        (tokens, fileBuffers, params, stats)
 	tokens           = doLateExpansionsResources(tokens, fileBuffers, params, stats)
 	tokens           = doLateExpansionsMacros   (tokens, fileBuffers, params, stats)
 	stats.tokenCount = #tokens
+
+	macroPrefix = ""
+	macroSuffix = ""
 
 	-- Generate metaprogram.
 	--==============================================================
@@ -3169,6 +3181,8 @@ local function processFileOrString(params, isFile)
 	outputFromMeta           = nil
 	canOutputNil             = true
 	fastStrings              = false
+	macroPrefix              = ""
+	macroSuffix              = ""
 
 	if xpcallOk then
 		return unpack(returnValues, 1, returnValues.n)
@@ -3217,6 +3231,9 @@ local pp = {
 	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
 	--
+	--   macroPrefix     = prefix                -- [Optional] String to prepend to macro names. (Default: "")
+	--   macroSuffix     = suffix                -- [Optional] String to append  to macro names. (Default: "")
+	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
@@ -3242,6 +3259,9 @@ local pp = {
 	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
 	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
 	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
+	--
+	--   macroPrefix     = prefix                -- [Optional] String to prepend to macro names. (Default: "")
+	--   macroSuffix     = suffix                -- [Optional] String to append  to macro names. (Default: "")
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.

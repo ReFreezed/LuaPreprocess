@@ -59,6 +59,12 @@ exec lua "$0" "$@"
 		--linenumbers
 			Add comments with line numbers to the output.
 
+		--macroprefix=prefix
+			String to prepend to macro names.
+
+		--macrosuffix=suffix
+			String to append to macro names.
+
 		--meta
 			Output the metaprogram to a temporary file (*.meta.lua). Useful if
 			an error happens when the metaprogram runs. This file is removed
@@ -181,6 +187,8 @@ local outputMeta           = false
 local processingInfoPath   = ""
 local silent               = false
 local validate             = true
+local macroPrefix          = ""
+local macroSuffix          = ""
 
 --==============================================================
 --= Local Functions ============================================
@@ -269,7 +277,7 @@ for _, arg in ipairs(args) do
 		processOptions = false
 
 	elseif arg:find"^%-%-data=" or arg:find"^%-d=" then
-		customData = arg:match"^%-%-data=(.*)$" or arg:match"^%-d=(.*)$"
+		customData = arg:gsub("^.-=", "")
 
 	elseif arg == "--backtickstrings" then
 		allowBacktickStrings = true
@@ -279,7 +287,7 @@ for _, arg in ipairs(args) do
 		outputMeta = true
 
 	elseif arg:find"^%-%-handler=" or arg:find"^%-h=" then
-		messageHandlerPath = arg:match"^%-%-handler=(.*)$" or arg:match"^%-h=(.*)$"
+		messageHandlerPath = arg:gsub("^.-=", "")
 
 	elseif arg == "--jitsyntax" then
 		allowJitSyntax = true
@@ -301,7 +309,7 @@ for _, arg in ipairs(args) do
 			errorLine("Cannot specify both --outputextension and --outputpaths")
 		end
 		hasOutputExtension = true
-		outputExtension    = arg:match"^%-%-outputextension=(.*)$"
+		outputExtension    = arg:gsub("^.-=", "")
 
 	elseif arg == "--outputpaths" or arg == "-o" then
 		if hasOutputExtension then
@@ -312,7 +320,7 @@ for _, arg in ipairs(args) do
 		hasOutputPaths = true
 
 	elseif arg:find"^%-%-saveinfo=" or arg:find"^%-i=" then
-		processingInfoPath = arg:match"^%-%-saveinfo=(.*)$" or arg:match"^%-i=(.*)$"
+		processingInfoPath = arg:gsub("^.-=", "")
 
 	elseif arg == "--silent" then
 		silent = true
@@ -322,6 +330,12 @@ for _, arg in ipairs(args) do
 
 	elseif arg == "--nogc" then
 		collectgarbage("stop")
+
+	elseif arg:find"^%-%-macroprefix=" then
+		macroPrefix = arg:gsub("^.-=", "")
+
+	elseif arg:find"^%-%-macrosuffix=" then
+		macroSuffix = arg:gsub("^.-=", "")
 
 	else
 		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
@@ -478,6 +492,9 @@ for i, pathIn in ipairs(pathsIn) do
 		canOutputNil    = canOutputNil,
 		fastStrings     = fastStrings,
 		validate        = validate,
+
+		macroPrefix     = macroPrefix,
+		macroSuffix     = macroSuffix,
 
 		onInsert = (hasMessageHandler("insert") or nil) and function(name)
 			local lua = sendMessage("insert", pathIn, name)
