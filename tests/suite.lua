@@ -378,6 +378,40 @@ doTest("Macros", function()
 	assert(not pp.processString{ code=[[  !(function Y() outputLua("y") ; return "z" end)  x = @@Y()  ]]})
 end)
 
+doTest("Predefined macros", function()
+	local pp = ppChunk()
+
+	-- @@ASSERT()
+	local luaOut = assert(pp.processString{ code=[[
+		@@ASSERT(foo)
+	]]})
+	assertCodeOutput(luaOut, [[if not (foo) then  error("Assertion failed: foo")  end]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		@@ASSERT(foo ~= "bad", "Bad foo: "..foo)
+	]]})
+	assertCodeOutput(luaOut, [[if not (foo ~= "bad") then  error(("Bad foo: "..foo))  end]])
+
+	-- @@LOG()
+	local luaOut = assert(pp.processString{ logLevel="error", code=[[
+		@@LOG("warning", "Uh oh!")
+	]]})
+	assertCodeOutput(luaOut, [[]])
+
+	local luaOut = assert(pp.processString{ logLevel="warning", code=[[
+		@@LOG("warning", "Uh oh!")
+	]]})
+	assertCodeOutput(luaOut, [[print("Uh oh!")]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		@@LOG("warning", "Number: %d", num)
+	]]})
+	assertCodeOutput(luaOut, [[print(string.format("Number: %d", num))]])
+
+	-- Invalid: Bad log level.
+	assert(not pp.processString{ logLevel="bad", code=""})
+end)
+
 doTest("Preprocessor symbols", function()
 	local pp = ppChunk()
 
