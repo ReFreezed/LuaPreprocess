@@ -21,6 +21,8 @@ exec lua "$0" "$@"
 		OR
 		lua preprocess-cl.lua --outputpaths [options] [--] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
 
+		File paths can be "-" for usage of stdin/stdout.
+
 	Examples:
 		lua preprocess-cl.lua --saveinfo=logs/info.lua --silent src/main.lua2p src/network.lua2p
 		lua preprocess-cl.lua --debug src/main.lua2p src/network.lua2p
@@ -97,7 +99,8 @@ exec lua "$0" "$@"
 			to see what information is saved.
 
 		--silent
-			Only print errors to the console.
+			Only print errors to the console. (This flag is automatically
+			enabled if an output path is stdout.)
 
 		--debug
 			Enable some preprocessing debug features. Useful if you want
@@ -105,8 +108,8 @@ exec lua "$0" "$@"
 			enables the --meta option.)
 
 		--
-			Stop options from being parsed further. Needed if you have
-			paths starting with "-".
+			Stop options from being parsed further. Needed if you have paths
+			starting with "-" (except for usage of stdin/stdout).
 
 ----------------------------------------------------------------
 
@@ -157,7 +160,7 @@ local args = arg
 
 local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
 if not major then
-	io.stderr:write("[LuaPreprocess] Warning: Could not detect Lua version.\n") -- Note: This line does not obey the --silent option.
+	io.stderr:write("[LuaPreprocess] Warning: Could not detect Lua version.\n")
 else
 	major = tonumber(major)
 	minor = tonumber(minor)
@@ -269,9 +272,13 @@ local pathsIn            = {}
 local pathsOut           = {}
 
 for _, arg in ipairs(args) do
-	if not (processOptions and arg:find"^%-") then
-		local paths = (hasOutputPaths and #pathsOut < #pathsIn and pathsOut or pathsIn)
+	if not (processOptions and arg:find"^%-.") then
+		local paths = (hasOutputPaths and #pathsOut < #pathsIn) and pathsOut or pathsIn
 		table.insert(paths, arg)
+
+		if arg == "-" and (not hasOutputPaths or paths == pathsOut) then
+			silent = true
+		end
 
 	elseif arg == "--" then
 		processOptions = false
@@ -432,7 +439,7 @@ sendMessage("init", pathsIn, (hasOutputPaths and pathsOut or nil))
 
 if not hasOutputPaths then
 	for i, pathIn in ipairs(pathsIn) do
-		pathsOut[i] = pathIn:gsub("%.%w+$", "").."."..outputExtension
+		pathsOut[i] = (pathIn == "-") and "-" or pathIn:gsub("%.%w+$", "").."."..outputExtension
 	end
 end
 
@@ -444,13 +451,16 @@ end
 
 local pathsSetIn  = {}
 local pathsSetOut = {}
+
 for i = 1, #pathsIn do
 	if pathsSetIn [pathsIn [i]] then  errorLine("Duplicate input path: " ..pathsIn [i])  end
 	if pathsSetOut[pathsOut[i]] then  errorLine("Duplicate output path: "..pathsOut[i])  end
+
 	pathsSetIn [pathsIn [i]] = true
 	pathsSetOut[pathsOut[i]] = true
-	if pathsSetOut[pathsIn [i]] then  errorLine("Path is both input and output: "..pathsIn [i])  end
-	if pathsSetIn [pathsOut[i]] then  errorLine("Path is both input and output: "..pathsOut[i])  end
+
+	if pathsIn [i] ~= "-" and pathsSetOut[pathsIn [i]] then  errorLine("Path is both input and output: "..pathsIn [i])  end
+	if pathsOut[i] ~= "-" and pathsSetIn [pathsOut[i]] then  errorLine("Path is both input and output: "..pathsOut[i])  end
 end
 
 
@@ -475,7 +485,7 @@ for i, pathIn in ipairs(pathsIn) do
 	local pathOut  = pathsOut[i]
 	local pathMeta = pathOut:gsub("%.%w+$", "")..".meta.lua"
 
-	if not outputMeta then
+	if not outputMeta or pathOut == "-" then
 		pathMeta = nil
 	end
 
@@ -582,10 +592,10 @@ end
 printfNoise(
 	"All done! (%.3fs, %.0f file%s, %.0f LOC, %.0f line%s, %.0f token%s, %s)",
 	os.clock()-startClock,
-	#pathsIn,   #pathsIn   == 1 and "" or "s",
+	#pathsIn,   (#pathsIn   == 1) and "" or "s",
 	lineCountCode,
-	lineCount,  lineCount  == 1 and "" or "s",
-	tokenCount, tokenCount == 1 and "" or "s",
+	lineCount,  (lineCount  == 1) and "" or "s",
+	tokenCount, (tokenCount == 1) and "" or "s",
 	formatBytes(byteCount)
 )
 

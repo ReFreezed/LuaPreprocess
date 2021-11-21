@@ -251,7 +251,7 @@ end
 
 
 function printf(s, ...)
-	print(s:format(...))
+	print(F(s, ...))
 end
 
 -- printTokens( tokens [, filterUselessTokens ] )
@@ -764,7 +764,7 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 		tok.lineEnd = ln
 
 		tableInsert(tokens, tok)
-		-- print(#tokens, tok.type, tok.representation)
+		-- print(#tokens, tok.type, tok.representation) -- DEBUG
 	end
 
 	return tokens
@@ -1334,7 +1334,7 @@ local metaFuncs = {}
 
 -- printf()
 --   printf( format, value1, ... )
---   Print a formatted string.
+--   Print a formatted string to stdout.
 metaFuncs.printf = printf
 
 -- getFileContents()
@@ -2616,7 +2616,9 @@ local function _processFileOrString(params, isFile)
 		if not params.pathIn  then  error("Missing 'pathIn' in params.",  2)  end
 		if not params.pathOut then  error("Missing 'pathOut' in params.", 2)  end
 
-		if params.pathOut == params.pathIn then  error("'pathIn' and 'pathOut' are the same in params.", 2)  end
+		if params.pathOut == params.pathIn and params.pathOut ~= "-" then
+			error("'pathIn' and 'pathOut' are the same in params.", 2)
+		end
 
 	else
 		if not params.code then  error("Missing 'code' in params.", 2)  end
@@ -2625,10 +2627,14 @@ local function _processFileOrString(params, isFile)
 	local luaUnprocessed, pathIn
 
 	if isFile then
+		pathIn = params.pathIn
 		local err
 
-		pathIn              = params.pathIn
-		luaUnprocessed, err = getFileContents(pathIn, true)
+		if pathIn == "-" then
+			luaUnprocessed, err = io.stdin:read"*a"
+		else
+			luaUnprocessed, err = getFileContents(pathIn, true)
+		end
 
 		if not luaUnprocessed then
 			errorf("Could not read file '%s'. (%s)", pathIn, err)
@@ -2650,7 +2656,7 @@ local function _processFileOrString(params, isFile)
 	end
 
 	local tokens = _tokenize(luaUnprocessed, pathIn, true, params.backtickStrings, params.jitSyntax)
-	-- printTokens(tokens)
+	-- printTokens(tokens) -- DEBUG
 
 	-- Info variables.
 	local lastTok = tokens[#tokens]
@@ -3029,7 +3035,7 @@ local function _processFileOrString(params, isFile)
 	--==============================================================
 
 	local luaMeta = table.concat(metaParts)
-	--[[ :PrintCode
+	--[[ DEBUG :PrintCode
 	print("=META===============================")
 	print(luaMeta)
 	print("====================================")
@@ -3068,7 +3074,7 @@ local function _processFileOrString(params, isFile)
 	end
 
 	local lua = table.concat(outputFromMeta)
-	--[[ :PrintCode
+	--[[ DEBUG :PrintCode
 	print("=OUTPUT=============================")
 	print(lua)
 	print("====================================")
@@ -3095,10 +3101,15 @@ local function _processFileOrString(params, isFile)
 	local pathOut = isFile and params.pathOut or "<output>"
 
 	if isFile then
-		local file = assert(io.open(pathOut, "wb"))
-		file:write(specialFirstLine or "")
-		file:write(lua)
-		file:close()
+		if pathOut == "-" then
+			io.stdout:write(specialFirstLine or "")
+			io.stdout:write(lua)
+		else
+			local file = assert(io.open(pathOut, "wb"))
+			file:write(specialFirstLine or "")
+			file:write(lua)
+			file:close()
+		end
 	end
 
 	-- Check if the output is valid Lua.
@@ -3218,8 +3229,8 @@ local pp = {
 	-- info: Table with various information. (See 'ProcessInfo' for more info.)
 	--
 	-- params: Table with these fields:
-	--   pathIn          = pathToInputFile       -- [Required]
-	--   pathOut         = pathToOutputFile      -- [Required]
+	--   pathIn          = pathToInputFile       -- [Required] Specify "-" to use stdin.
+	--   pathOut         = pathToOutputFile      -- [Required] Specify "-" to use stdout. (Note that if stdout is used then anything you print() in the metaprogram will end up there.)
 	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error occurs in the metaprogram.
 	--
 	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.

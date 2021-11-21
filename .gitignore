@@ -4,6 +4,8 @@ local/
 /*.sublime-*
 /.run
 
+/temp/
+
 /tests/quickTest.lua
 /tests/quickTest.meta.lua
 
