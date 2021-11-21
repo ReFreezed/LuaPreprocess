@@ -61,6 +61,11 @@ exec lua "$0" "$@"
 		--linenumbers
 			Add comments with line numbers to the output.
 
+		--loglevel=levelName
+			Set maximum log level for the @@LOG() macro. Can be "off",
+			"error", "warning", "info", "debug" or "trace". The default is
+			"trace", which enables all logging.
+
 		--macroprefix=prefix
 			String to prepend to macro names.
 
@@ -91,6 +96,9 @@ exec lua "$0" "$@"
 		--outputpaths|-o
 			This flag makes every other specified path be the output path
 			for the previous path.
+
+		--release
+			Enable release mode. Currently only disables the @@ASSERT() macro.
 
 		--saveinfo|-i=pathToSaveProcessingInfoTo
 			Processing information includes what files had any preprocessor
@@ -192,6 +200,8 @@ local silent               = false
 local validate             = true
 local macroPrefix          = ""
 local macroSuffix          = ""
+local releaseMode          = false
+local maxLogLevel          = "trace"
 
 --==============================================================
 --= Local Functions ============================================
@@ -343,6 +353,12 @@ for _, arg in ipairs(args) do
 
 	elseif arg:find"^%-%-macrosuffix=" then
 		macroSuffix = arg:gsub("^.-=", "")
+
+	elseif arg == "--release" then
+		releaseMode = true
+
+	elseif arg:find"^%-%-loglevel=" then
+		maxLogLevel = arg:gsub("^.-=", "")
 
 	else
 		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
@@ -505,6 +521,9 @@ for i, pathIn in ipairs(pathsIn) do
 
 		macroPrefix     = macroPrefix,
 		macroSuffix     = macroSuffix,
+
+		release         = releaseMode,
+		logLevel        = maxLogLevel,
 
 		onInsert = (hasMessageHandler("insert") or nil) and function(name)
 			local lua = sendMessage("insert", pathIn, name)

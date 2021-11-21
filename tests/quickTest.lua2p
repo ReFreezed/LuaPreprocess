@@ -97,10 +97,10 @@ print("Final program - uhh: "..uhh1..", "..uhh2)
 !(
 local DEBUG = 1==1
 
-local function ASSERT(cond, message)
+local function MY_ASSERT(cond, message)
 	if not DEBUG then  return ""  end
 
-	message = message or "'Asertion failed!'"
+	message = message or "'Assertion failed!'"
 
 	return "if not ("..cond..") then error("..message..") end"
 end
@@ -108,11 +108,11 @@ end
 
 local ok = 1==1
 
-@insert ASSERT ( ok , "Oh "..tonumber("7",10).." noes!" )
--- @insert ASSERT ( 1 1 ) -- Syntax error!
--- @insert ASSERT ( ok , ) -- Syntax error!
--- @insert ASSERT ( , ok ) -- Syntax error!
--- @insert ASSERT ( --[[]] , ok ) -- Syntax error!
+@insert MY_ASSERT ( ok , "Oh "..tonumber("7",10).." noes!" )
+-- @insert MY_ASSERT ( 1 1 ) -- Syntax error!
+-- @insert MY_ASSERT ( ok , ) -- Syntax error!
+-- @insert MY_ASSERT ( , ok ) -- Syntax error!
+-- @insert MY_ASSERT ( --[[]] , ok ) -- Syntax error!
 
 !local function PASS_THROUGH(lua)  return lua  end
 local s = @insert PASS_THROUGH "foo"
@@ -153,6 +153,13 @@ a          = some
 other      = 500921
 !local lua = stopInterceptingOutput():gsub("%a+", "%0Derp")
 !!(lua)
+
+
+
+-- Predefined macros.
+@@ASSERT(1 < 2)
+@@LOG("warning", "Things may be bad - who knows!?")
+@@LOG("info",    "%s number %d", "foo", 5)
 
 
 

@@ -27,6 +27,9 @@
 	- getOutputSoFar, getOutputSizeSoFar, getCurrentLineNumberInOutput
 	- outputValue, outputLua, outputLuaTemplate
 	- startInterceptingOutput, stopInterceptingOutput
+	Macros (search for 'PredefinedMacros'):
+	- ASSERT
+	- LOG
 	Search this file for 'EnvironmentTable' for more info.
 
 	Exported stuff from the library:
@@ -167,6 +170,15 @@ local ESCAPE_SEQUENCES = {
 
 local USELESS_TOKENS = {whitespace=true, comment=true}
 
+local LOG_LEVELS = {
+	["off"]     = 0,
+	["error"]   = 1,
+	["warning"] = 2,
+	["info"]    = 3,
+	["debug"]   = 4,
+	["trace"]   = 5,
+}
+
 local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
 if not major then
 	io.stderr:write("[LuaPreprocess] Warning: Could not detect Lua version.\n")
@@ -181,7 +193,8 @@ local IS_LUA_51_OR_LATER = (major == 5 and minor >= 1) or (major ~= nil and majo
 local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
 local IS_LUA_53_OR_LATER = (major == 5 and minor >= 3) or (major ~= nil and major > 5)
 
-local metaEnv = nil
+local metaEnv  = nil
+local dummyEnv = {}
 
 local isDebug = false -- Controlled by processFileOrString().
 
@@ -195,6 +208,8 @@ local canOutputNil             = true
 local fastStrings              = false
 local macroPrefix              = ""
 local macroSuffix              = ""
+local releaseMode              = false
+local maxLogLevel              = "trace"
 
 
 
@@ -1854,6 +1869,71 @@ function metaFuncs.stopInterceptingOutput()
 	return table.concat(interceptedLua)
 end
 
+-- :PredefinedMacros
+
+-- ASSERT()
+--   @@ASSERT( condition [, message=auto ] )
+--   Macro. Does nothing if params.release is set, otherwise calls error() if
+--   the condition fails. The message is only evaluated if the condition fails.
+function metaFuncs.ASSERT(conditionCode, messageCode)
+	errorIfNotRunningMeta(2)
+	if not conditionCode then  error("missing argument #1 to 'ASSERT'", 2)  end
+
+	if releaseMode then  return  end
+
+	tableInsert(outputFromMeta, "if not (")
+	tableInsert(outputFromMeta, conditionCode)
+	tableInsert(outputFromMeta, ") then  error(")
+
+	if messageCode then
+		tableInsert(outputFromMeta, "(")
+		tableInsert(outputFromMeta, messageCode)
+		tableInsert(outputFromMeta, ")")
+	else
+		tableInsert(outputFromMeta, F("%q", "Assertion failed: "..conditionCode))
+	end
+
+	tableInsert(outputFromMeta, ")  end")
+end
+
+-- LOG()
+--   @@LOG( logLevel, value )               -- [1]
+--   @@LOG( logLevel, format, value1, ... ) -- [2]
+--
+--   Macro. Does nothing if logLevel is lower than params.logLevel,
+--   otherwise prints a value[1] or a formatted message[2].
+--
+--   logLevel can be "error" (level 1), "warning" (level 2),
+--   "info" (level 3), "debug" (level 4) or "trace" (level 5).
+--
+function metaFuncs.LOG(logLevelCode, valueOrFormatCode, ...)
+	errorIfNotRunningMeta(2)
+	if not logLevelCode      then  error("missing argument #1 to 'LOG'", 2)  end
+	if not valueOrFormatCode then  error("missing argument #2 to 'LOG'", 2)  end
+
+	local chunk = loadLuaString("return _,"..logLevelCode, "@", dummyEnv)
+	if not chunk then  errorf(2, "Invalid logLevel expression. Got: %s", logLevelCode)  end
+
+	local ok, _, logLevel = pcall(chunk)
+	if not ok                   then  errorf(2, "logLevel must be a constant expression. Got: %s", logLevelCode)  end
+	if not LOG_LEVELS[logLevel] then  errorf(2, "Invalid logLevel '%s'.", tostring(logLevel))  end
+	if logLevel == "off"        then  errorf(2, "Invalid logLevel '%s'.", tostring(logLevel))  end
+
+	if LOG_LEVELS[logLevel] > LOG_LEVELS[maxLogLevel] then  return  end
+
+	tableInsert(outputFromMeta, "print(")
+
+	if ... then
+		tableInsert(outputFromMeta, "string.format(")
+		tableInsert(outputFromMeta, table.concat({valueOrFormatCode, ...}, ", "))
+		tableInsert(outputFromMeta, ")")
+	else
+		tableInsert(outputFromMeta, valueOrFormatCode)
+	end
+
+	tableInsert(outputFromMeta, ")")
+end
+
 -- Extra stuff used by the command line program:
 metaFuncs.tryToFormatError = tryToFormatError
 
@@ -3046,6 +3126,12 @@ local function _processFileOrString(params, isFile)
 	outputFromMetaStack      = {outputFromMeta}
 	canOutputNil             = params.canOutputNil ~= false
 	fastStrings              = params.fastStrings
+	releaseMode              = params.release
+	maxLogLevel              = params.logLevel or "trace"
+
+	if not LOG_LEVELS[maxLogLevel] then
+		errorf(2, "Invalid 'logLevel' value in params. (%s)", maxLogLevel)
+	end
 
 	if params.pathMeta then
 		local file = assert(io.open(params.pathMeta, "wb"))
@@ -3084,6 +3170,8 @@ local function _processFileOrString(params, isFile)
 	outputFromMetaStack      = nil
 	outputFromMeta           = nil
 	canOutputNil             = true
+	releaseMode              = false
+	maxLogLevel              = "trace"
 
 	if params.onAfterMeta then
 		local luaModified = params.onAfterMeta(lua)
@@ -3194,6 +3282,8 @@ local function processFileOrString(params, isFile)
 	fastStrings              = false
 	macroPrefix              = ""
 	macroSuffix              = ""
+	releaseMode              = false
+	maxLogLevel              = "trace"
 
 	if xpcallOk then
 		return unpack(returnValues, 1, returnValues.n)
@@ -3245,6 +3335,9 @@ local pp = {
 	--   macroPrefix     = prefix                -- [Optional] String to prepend to macro names. (Default: "")
 	--   macroSuffix     = suffix                -- [Optional] String to append  to macro names. (Default: "")
 	--
+	--   release         = boolean               -- [Optional] Enable release mode. Currently only disables the @@ASSERT() macro when true. (Default: false)
+	--   logLevel        = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
+	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
 	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
@@ -3273,6 +3366,9 @@ local pp = {
 	--
 	--   macroPrefix     = prefix                -- [Optional] String to prepend to macro names. (Default: "")
 	--   macroSuffix     = suffix                -- [Optional] String to append  to macro names. (Default: "")
+	--
+	--   release         = boolean               -- [Optional] Enable release mode. Currently only disables the @@ASSERT() macro when true. (Default: false)
+	--   logLevel        = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
 	--
 	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
 	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
