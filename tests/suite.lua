@@ -388,9 +388,9 @@ doTest("Predefined macros", function()
 	assertCodeOutput(luaOut, [[if not (foo) then  error("Assertion failed: foo")  end]])
 
 	local luaOut = assert(pp.processString{ code=[[
-		@@ASSERT(foo ~= "bad", "Bad foo: "..foo)
+		@@ASSERT(foo ~= "good", "Bad foo: "..foo)
 	]]})
-	assertCodeOutput(luaOut, [[if not (foo ~= "bad") then  error(("Bad foo: "..foo))  end]])
+	assertCodeOutput(luaOut, [[if not (foo ~= "good") then  error(("Bad foo: "..foo))  end]])
 
 	-- @@LOG()
 	local luaOut = assert(pp.processString{ logLevel="error", code=[[

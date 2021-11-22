@@ -27,10 +27,10 @@
 	- getOutputSoFar, getOutputSizeSoFar, getCurrentLineNumberInOutput
 	- outputValue, outputLua, outputLuaTemplate
 	- startInterceptingOutput, stopInterceptingOutput
-	Macros (search for 'PredefinedMacros'):
+	Macros:
 	- ASSERT
 	- LOG
-	Search this file for 'EnvironmentTable' for more info.
+	Search this file for 'EnvironmentTable' and 'PredefinedMacros' for more info.
 
 	Exported stuff from the library:
 	- (all the functions above)
@@ -127,7 +127,7 @@
 
 
 
-local PP_VERSION = "1.16.0-dev"
+local PP_VERSION = "1.17.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -1873,8 +1873,8 @@ end
 
 -- ASSERT()
 --   @@ASSERT( condition [, message=auto ] )
---   Macro. Does nothing if params.release is set, otherwise calls error() if
---   the condition fails. The message is only evaluated if the condition fails.
+--   Macro. Does nothing if params.release is set, otherwise calls error() if the
+--   condition fails. The message argument is only evaluated if the condition fails.
 function metaFuncs.ASSERT(conditionCode, messageCode)
 	errorIfNotRunningMeta(2)
 	if not conditionCode then  error("missing argument #1 to 'ASSERT'", 2)  end
@@ -1903,8 +1903,8 @@ end
 --   Macro. Does nothing if logLevel is lower than params.logLevel,
 --   otherwise prints a value[1] or a formatted message[2].
 --
---   logLevel can be "error" (level 1), "warning" (level 2),
---   "info" (level 3), "debug" (level 4) or "trace" (level 5).
+--   logLevel can be "error", "warning", "info", "debug" or "trace"
+--   (from highest to lowest priority).
 --
 function metaFuncs.LOG(logLevelCode, valueOrFormatCode, ...)
 	errorIfNotRunningMeta(2)

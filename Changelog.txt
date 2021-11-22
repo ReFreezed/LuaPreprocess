@@ -1,6 +1,15 @@
 Changelog
 LuaPreprocess
 
+v1.17 (2021-11-22)
+Library:
+- Added predefined macros @@ASSERT() and @@LOG().
+- Added params.release and params.logLevel for controlling aspects of the predefined macros.
+- Added params.macroPrefix and params.macroSuffix (e.g. make @@FOO() call the function MACRO_FOO()).
+Command line program:
+- Added support for using stdin/stdout as input/output. (Specify "-" as the file path.)
+- Added --release and --loglevel options.
+
 v1.16 (2021-11-16)
 Library:
 - Added preprocessor symbols (in the form of '$name').
