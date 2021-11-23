@@ -9,6 +9,7 @@ Library:
 Command line program:
 - Added support for using stdin/stdout as input/output. (Specify "-" as the file path.)
 - Added --release and --loglevel options.
+- Added --macroprefix and --macrosuffix options.
 
 v1.16 (2021-11-16)
 Library:
