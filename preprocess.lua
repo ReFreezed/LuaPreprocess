@@ -18,8 +18,10 @@
 	- escapePattern
 	- getFileContents, fileExists
 	- pack
+	- pairsSorted
 	- printf
 	- run
+	- sortNatural, compareNatural
 	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
 	- toLua, serialize, evaluate
 	Only during processing:
@@ -237,8 +239,10 @@ local isToken, isTokenAndNotNil
 local loadLuaString, loadLuaFile
 local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
+local pairsSorted
 local printf, printTokens, printError, printfError, printErrorTraceback
 local serialize, toLua, evaluate
+local sortNatural, compareNatural
 local tableInsert, tableRemove, tableInsertFormat
 local utf8GetCharLength, utf8GetCodepointAndLength
 
@@ -282,7 +286,7 @@ function printError(s)
 	io.stderr:write(s, "\n")
 end
 function printfError(s, ...)
-	printError(s:format(...))
+	printError(F(s, ...))
 end
 
 -- printErrorTraceback( message [, level=1 ] )
@@ -335,9 +339,9 @@ end
 -- errorf( [ level=1, ] string, ... )
 function errorf(sOrLevel, ...)
 	if type(sOrLevel) == "number" then
-		error(string.format(...), (sOrLevel == 0 and 0 or 1+sOrLevel))
+		error(F(...), (sOrLevel == 0 and 0 or 1+sOrLevel))
 	else
-		error(sOrLevel:format(...), 2)
+		error(F(sOrLevel, ...), 2)
 	end
 end
 
@@ -351,7 +355,7 @@ end
 
 -- errorOnLine( path, lineNumber, agent=nil, s, ... )
 function errorOnLine(path, ln, agent, s, ...)
-	s = s:format(...)
+	s = F(s, ...)
 	if agent then
 		errorfLine("%s:%d: [%s] %s", path, ln, agent, s)
 	else
@@ -376,7 +380,7 @@ do
 	end
 
 	function errorInFile(contents, path, pos, agent, s, ...)
-		s = s:format(...)
+		s = F(s, ...)
 
 		pos      = math.min(math.max(pos, 1), #contents+1)
 		local ln = getLineNumber(contents, pos)
@@ -1291,7 +1295,7 @@ tableInsert = table.insert
 tableRemove = table.remove
 
 function tableInsertFormat(t, s, ...)
-	tableInsert(t, s:format(...))
+	tableInsert(t, F(s, ...))
 end
 
 
@@ -1342,6 +1346,46 @@ function utf8GetCodepointAndLength(s, pos)
 	if len == 2 then  local b1, b2         = s:byte(pos, pos+1) ; return                                   (b1-192)*64 + (b2-128), len  end
 	if len == 3 then  local b1, b2, b3     = s:byte(pos, pos+2) ; return                   (b1-224)*4096 + (b2-128)*64 + (b3-128), len  end
 	do                local b1, b2, b3, b4 = s:byte(pos, pos+3) ; return (b1-240)*262144 + (b2-128)*4096 + (b3-128)*64 + (b4-128), len  end
+end
+
+
+
+-- for k, v in pairsSorted( table ) do
+function pairsSorted(t)
+	local keys = {}
+	for k in pairs(t) do
+		tableInsert(keys, k)
+	end
+	sortNatural(keys)
+
+	local i = 0
+
+	return function()
+		i = i+1
+		local k = keys[i]
+		if k ~= nil then  return k, t[k]  end
+	end
+end
+
+
+
+-- sortNatural( array )
+-- aIsLessThanB = compareNatural( a, b )
+do
+	local function pad(numStr)
+		return F("%03d%s", #numStr, numStr)
+	end
+	function compareNatural(a, b)
+		if type(a) == "number" and type(b) == "number" then
+			return a < b
+		else
+			return (tostring(a):gsub("%d+", pad) < tostring(b):gsub("%d+", pad))
+		end
+	end
+
+	function sortNatural(t, k)
+		table.sort(t, compareNatural)
+	end
 end
 
 
@@ -1410,15 +1454,33 @@ metaFuncs.isToken = isToken
 metaFuncs.copyTable = copyTable
 
 -- unpack()
---   value1, ... = unpack( table [, fromIndex=1, toIndex=#table ] )
+--   value1, ... = unpack( array [, fromIndex=1, toIndex=#array ] )
 --   Is _G.unpack() in Lua 5.1 and alias for table.unpack() in Lua 5.2+.
 metaFuncs.unpack = unpack
 
 -- pack()
 --   values = pack( value1, ... )
---   Put values in a new table. values.n is the amount of values (which can be zero)
+--   Put values in a new array. values.n is the amount of values (which can be zero)
 --   including nil values. Alias for table.pack() in Lua 5.2+.
 metaFuncs.pack = pack
+
+-- pairsSorted()
+--   for key, value in pairsSorted( table ) do
+--   Same as pairs() but the keys are sorted (ascending).
+metaFuncs.pairsSorted = pairsSorted
+
+-- sortNatural()
+--   sortNatural( array )
+--   Sort an array using compareNatural().
+metaFuncs.sortNatural = sortNatural
+
+-- compareNatural()
+--   aIsLessThanB = compareNatural( a, b )
+--   Compare two strings. Numbers in the strings are compared as numbers (as opposed to as strings).
+--   Examples:
+--     print(               "foo9" < "foo10" ) -- false
+--     print(compareNatural("foo9",  "foo10")) -- true
+metaFuncs.compareNatural = compareNatural
 
 -- run()
 --   returnValue1, ... = run( path [, arg1, ... ] )
