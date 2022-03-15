@@ -154,6 +154,11 @@ other      = 500921
 !local lua = stopInterceptingOutput():gsub("%a+", "%0Derp")
 !!(lua)
 
+!local function CALL_WITH_EVALUATED(func, value)
+	$func(!(assert(evaluate(value))))
+!end
+@@CALL_WITH_EVALUATED(print, table.concat{"Large number: ",59^15})
+
 
 
 -- Predefined macros.

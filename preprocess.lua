@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess library
+--=  LuaPreprocess v1.17-dev - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -21,7 +21,7 @@
 	- printf
 	- run
 	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
-	- toLua, serialize
+	- toLua, serialize, evaluate
 	Only during processing:
 	- getCurrentPathIn, getCurrentPathOut
 	- getOutputSoFar, getOutputSizeSoFar, getCurrentLineNumberInOutput
@@ -127,7 +127,7 @@
 
 
 
-local PP_VERSION = "1.17.0"
+local PP_VERSION = "1.17.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -238,7 +238,7 @@ local loadLuaString, loadLuaFile
 local outputLineNumber, maybeOutputLineNumber
 local pack, unpack
 local printf, printTokens, printError, printfError, printErrorTraceback
-local serialize, toLua
+local serialize, toLua, evaluate
 local tableInsert, tableRemove, tableInsertFormat
 local utf8GetCharLength, utf8GetCodepointAndLength
 
@@ -1059,8 +1059,6 @@ function serialize(buffer, v)
 	return true
 end
 
-
-
 -- luaString = toLua( value )
 -- Returns nil and a message on error.
 function toLua(v)
@@ -1070,6 +1068,21 @@ function toLua(v)
 	if not ok then  return nil, err  end
 
 	return table.concat(buffer)
+end
+
+-- value = evaluate( expression )
+-- Returns nil and a message on error.
+function evaluate(expression)
+	local chunk, err = loadLuaString("return "..expression, "@", getfenv(2))
+	if not chunk then
+		return nil, F("Invalid expression '%s'. (%s)", expression, (err:gsub("^:%d+: ", "")))
+	end
+
+	if expression:find(",", 1, true) and not loadLuaString("return("..expression.."\n)", "@") then
+		return nil, F("Ambiguous expression '%s'. (Comma-separated list?)", expression)
+	end
+
+	return (chunk())
 end
 
 
@@ -1373,6 +1386,12 @@ metaFuncs.toLua = toLua
 --   Same as toLua() except adds the result to an array instead of returning the Lua code as a string.
 --   This could avoid allocating unnecessary strings.
 metaFuncs.serialize = serialize
+
+-- evaluate()
+--   value = evaluate( expression )
+--   Evaluate an expression. Returns nil and a message on error.
+--   Note that nil or false can also be returned if that's the value the expression results in!
+metaFuncs.evaluate = evaluate
 
 -- escapePattern()
 --   escapedString = escapePattern( string )
@@ -2458,6 +2477,7 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 			end
 			local argStr = insertTokensAsStringLiteral(tokens, argNonPpTokens, argNonPpStartTok)
 
+			--[[ :NoInconsistentMacroArgumentValidation
 			if isFirstPart then
 				local chunk, err = loadLuaString("return ("..argStr..")", "@")
 
@@ -2467,6 +2487,7 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 					-- errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid table constructor expression. (%s)", err)
 				end
 			end
+			]]
 		end
 
 		-- Add ')' for end of call.
@@ -2585,6 +2606,7 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 					end
 					local argStr = insertTokensAsStringLiteral(tokens, argNonPpTokens, argNonPpStartTok)
 
+					--[[ :NoInconsistentMacroArgumentValidation
 					if isFirstPart then
 						local chunk, err = loadLuaString("return ("..argStr..")", "@")
 
@@ -2594,6 +2616,7 @@ local function expandMacro(tokens, fileBuffers, tokenStack, macroStartTok, isNes
 							-- errorAtToken(fileBuffers, argNonPpStartTok, nil, "Macro", "Syntax error: Invalid expression for argument #%d. (%s)", argNum, err)
 						end
 					end
+					]]
 
 				elseif isFirstPart then
 					-- There were no useful tokens for the argument!
@@ -3398,7 +3421,7 @@ return pp
 
 --[[!===========================================================
 
-Copyright © 2018-2021 Marcus 'ReFreezed' Thunström
+Copyright © 2018-2022 Marcus 'ReFreezed' Thunström
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

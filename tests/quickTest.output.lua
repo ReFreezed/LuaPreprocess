@@ -109,6 +109,8 @@ local y = x
 aDerp     = someDerp
 otherDerp = 500921
 
+print("Large number: 3.6540978656062e+026")
+
 
 
 -- Symbols
