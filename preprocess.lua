@@ -1974,7 +1974,13 @@ function metaEnv.__MACRO()
 end
 
 function metaEnv.__EVALSYMBOL(v)
-	if type(v) == "function" then
+	if
+		type(v) == "function"
+		-- We use debug.getmetatable instead of _G.getmetatable because we
+		-- don't want to potentially invoke used code right here - we just
+		-- want to know if the value is callable.
+		or (type(v) == "table" and debug.getmetatable(v) and debug.getmetatable(v).__call)
+	then
 		v = v()
 	end
 	return v

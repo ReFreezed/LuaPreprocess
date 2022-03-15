@@ -118,6 +118,8 @@ local rand = math.random()
 local x = 5
 local y = 89
 local z = x*3+y
+local w = z*-8
+print("w is "..w)
 
 
 

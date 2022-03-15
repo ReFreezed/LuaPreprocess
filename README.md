@@ -4,7 +4,7 @@
 	<a href="https://github.com/ReFreezed/LuaPreprocess/releases/latest">
 		<img src="https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg" alt="">
 	</a>
-	<a href="https://github.com/ReFreezed/LuaPreprocess/blob/master/LICENSE">
+	<a href="https://github.com/ReFreezed/LuaPreprocess/blob/master/LICENSE.txt">
 		<img src="https://img.shields.io/github/license/ReFreezed/LuaPreprocess.svg" alt="">
 	</a>
 </p>

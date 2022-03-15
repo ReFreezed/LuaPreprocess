@@ -167,10 +167,19 @@ other      = 500921
 !local RANDOM = "math.random()"
 local rand    = $RANDOM
 
-!local function EQUATION()  return "x*3+y"  end
+!local EQUATION_FROM_FUNCTION = (function()
+	return "x*3+y"
+end)
+!local EQUATION_FROM_TABLE = setmetatable({}, {
+	__call = function()
+		return "z*-8"
+	end,
+})
 local x = 5
 local y = 89
-local z = $EQUATION
+local z = $EQUATION_FROM_FUNCTION
+local w = $EQUATION_FROM_TABLE
+print("w is "..w)
 
 
 
