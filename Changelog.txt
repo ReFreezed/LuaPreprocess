@@ -1,6 +1,12 @@
 Changelog
 LuaPreprocess
 
+v1.18 (2022-03-19)
+Library:
+- Added functions: loadResource(), evaluate(), pairsSorted(), sortNatural() and compareNatural().
+- $symbol now accepts callable tables in addition to functions.
+- Argument expressions for macros are no longer validated. This was inconsistent before as they were only validated when not containing preprocessor code, like @@foo(!!(bar)).
+
 v1.17 (2021-11-22)
 Library:
 - Added predefined macros @@ASSERT() and @@LOG().

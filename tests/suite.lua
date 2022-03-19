@@ -333,6 +333,13 @@ doTest("Macros", function()
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1")!!("+")!!("2") )  ]]}), [[n = 1+2]]          )
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1")!!("+")!!("2") }  ]]}), [[n = { 1+2 }]]      )
 
+	-- Invalid code in arguments (which is ok).
+	local luaOut = assert(pp.processString{ code=[[
+		!function BINOP(operator, a, b)  return a..operator..b  end
+		v = @@BINOP(^, 3, 2)
+	]]})
+	assertCodeOutput(luaOut, [[v = 3^2]])
+
 	-- Invalid: Ambiguous syntax.
 	assert(not pp.processString{ code=[[
 		!function VOID()  return ""  end
@@ -427,6 +434,12 @@ doTest("Preprocessor symbols", function()
 	]]})
 	assertCodeOutput(luaOut, [[x = y]])
 
+	local luaOut = assert(pp.processString{ code=[[
+		!local FOO = setmetatable({}, {__call=function()  return "y"  end})
+		x = $FOO
+	]]})
+	assertCodeOutput(luaOut, [[x = y]])
+
 	-- Invalid: Symbols must result in strings.
 	assert(not pp.processString{ code=[[
 		!local BAD = 840
@@ -434,6 +447,10 @@ doTest("Preprocessor symbols", function()
 	]]})
 	assert(not pp.processString{ code=[[
 		!local function BAD()  return 840  end
+		v = $BAD
+	]]})
+	assert(not pp.processString{ code=[[
+		!local BAD = {}
 		v = $BAD
 	]]})
 end)
@@ -569,6 +586,41 @@ doTest("Output interception", function()
 	-- Invalid: Unbalanced interception start/stop calls.
 	assert(not pp.processString{ code=[[ !startInterceptingOutput() ]]})
 	assert(not pp.processString{ code=[[ !stopInterceptingOutput()  ]]})
+end)
+
+doTest("Resources and evaluation", function()
+	local pp = ppChunk()
+
+	assert(pp.processString{
+		code     = [[ !assert(loadResource("x=x+1") == "x=x+1") ]],
+		onInsert = function(name)  return name  end,
+	})
+
+	assert(pp.processString{
+		code     = [[ !x = 8 ; assert(evaluate("2^x") == 2^x) ]],
+		onInsert = function(name)  return name  end,
+	})
+end)
+
+doTest("Misc.", function()
+	local pp = ppChunk()
+
+	assert(                 ("foo9" < "foo10") == false)
+	assert(pp.compareNatural("foo9",  "foo10") == true )
+
+	do
+		local keys  = {"a2", "b", "a10", "-"}
+		local map   = {a2=2, b=4, a10=3, ["-"]=1}
+		local count = 0
+
+		pp.sortNatural(keys)
+
+		for k, order in pp.pairsSorted(map) do
+			count = count + 1
+			assert(order       == count)
+			assert(keys[order] == k)
+		end
+	end
 end)
 
 

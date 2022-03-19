@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess v1.17-dev - preprocessing library
+--=  LuaPreprocess v1.18 - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -130,7 +130,7 @@
 
 
 
-local PP_VERSION = "1.17.0-dev"
+local PP_VERSION = "1.18.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -1491,8 +1491,8 @@ metaFuncs.serialize = serialize
 
 -- evaluate()
 --   value = evaluate( expression )
---   Evaluate an expression. Returns nil and a message on error.
---   Note that nil or false can also be returned if that's the value the expression results in!
+--   Evaluate a Lua expression. Returns nil and a message on error.
+--   Note that nil or false can also be returned as the first value if that's the value the expression results in!
 metaFuncs.evaluate = evaluate
 
 -- escapePattern()
