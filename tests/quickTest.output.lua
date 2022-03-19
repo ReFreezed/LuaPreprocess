@@ -113,6 +113,13 @@ print("Large number: 3.6540978656062e+026")
 
 
 
+-- Predefined macros.
+if not (1 < 2) then  error("Assertion failed: 1 < 2")  end
+print("Things may be bad - who knows!?")
+print(string.format("%s number %d", "foo", 5))
+
+
+
 -- Symbols
 
 local rand = math.random()
