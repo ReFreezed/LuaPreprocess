@@ -1806,7 +1806,7 @@ local numberFormatters = {
 --   whitespaceToken  = newToken( "whitespace",  contents )
 --   ppEntryToken     = newToken( "pp_entry",    isDouble )
 --   ppKeywordToken   = newToken( "pp_keyword",  ppKeyword ) -- ppKeyword can be "@".
---   ppKeywordToken   = newToken( "pp_symbol",   identifier )
+--   ppSymbolToken    = newToken( "pp_symbol",   identifier )
 --
 --   commentToken     = { type="comment",     representation=string, value=string, long=isLongForm }
 --   identifierToken  = { type="identifier",  representation=string, value=string }
@@ -2128,7 +2128,7 @@ function metaEnv.__EVALSYMBOL(v)
 	if
 		type(v) == "function"
 		-- We use debug.getmetatable instead of _G.getmetatable because we
-		-- don't want to potentially invoke used code right here - we just
+		-- don't want to potentially invoke user code right here - we just
 		-- want to know if the value is callable.
 		or (type(v) == "table" and debug.getmetatable(v) and debug.getmetatable(v).__call)
 	then
