@@ -7,7 +7,7 @@
 --=  Website: http://luapreprocess.refreezed.com/
 --=  Documentation: http://luapreprocess.refreezed.com/docs/
 --=
---=  Tested with Lua 5.1, 5.2, 5.3 and 5.4.
+--=  Tested with Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT.
 --=
 --==============================================================
 
@@ -26,9 +26,8 @@
 	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
 	- toLua, serialize, evaluate
 	Only during processing:
-	- getCurrentIndentation
 	- getCurrentPathIn, getCurrentPathOut
-	- getOutputSoFar, getOutputSoFarOnLine, getOutputSizeSoFar, getCurrentLineNumberInOutput
+	- getOutputSoFar, getOutputSoFarOnLine, getOutputSizeSoFar, getCurrentLineNumberInOutput, getCurrentIndentationInOutput
 	- loadResource
 	- outputValue, outputLua, outputLuaTemplate
 	- startInterceptingOutput, stopInterceptingOutput
@@ -1795,14 +1794,14 @@ end
 -- getIndentation()
 --   string = getIndentation( line )
 --   size   = getIndentation( line, tabWidth )
---   Get indentation of a line, either as a string or as size in spaces.
+--   Get indentation of a line, either as a string or as a size in spaces.
 metaFuncs.getIndentation = _getIndentation
 
--- getCurrentIndentation()
---   string = getCurrentIndentation( )
---   size   = getCurrentIndentation( tabWidth )
---   Get the indentation of the current line, either as a string or as size in spaces.
-function metaFuncs.getCurrentIndentation(tabWidth)
+-- getCurrentIndentationInOutput()
+--   string = getCurrentIndentationInOutput( )
+--   size   = getCurrentIndentationInOutput( tabWidth )
+--   Get the indentation of the current line, either as a string or as a size in spaces.
+function metaFuncs.getCurrentIndentationInOutput(tabWidth)
 	return (_getIndentation(_getOutputSoFarOnLine(), tabWidth))
 end
 
