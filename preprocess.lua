@@ -1118,10 +1118,10 @@ function toLua(v)
 	return table.concat(buffer)
 end
 
--- value = evaluate( expression )
+-- value = evaluate( expression [, environment=getfenv() ] )
 -- Returns nil and a message on error.
-function evaluate(expression)
-	local chunk, err = loadLuaString("return "..expression, "@", getfenv(2))
+function evaluate(expression, env)
+	local chunk, err = loadLuaString("return "..expression, "@", (env or getfenv(2)))
 	if not chunk then
 		return nil, F("Invalid expression '%s'. (%s)", expression, (err:gsub("^:%d+: ", "")))
 	end
@@ -1529,8 +1529,8 @@ metaFuncs.toLua = toLua
 metaFuncs.serialize = serialize
 
 -- evaluate()
---   value = evaluate( expression )
---   Evaluate a Lua expression. Returns nil and a message on error.
+--   value = evaluate( expression [, environment=getfenv() ] )
+--   Evaluate a Lua expression. The function is kind of the opposite of toLua(). Returns nil and a message on error.
 --   Note that nil or false can also be returned as the first value if that's the value the expression results in!
 metaFuncs.evaluate = evaluate
 
