@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess v1.18 - preprocessing library
+--=  LuaPreprocess v1.18-dev - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -26,7 +26,7 @@
 	- toLua, serialize, evaluate
 	Only during processing:
 	- getCurrentPathIn, getCurrentPathOut
-	- getOutputSoFar, getOutputSizeSoFar, getCurrentLineNumberInOutput
+	- getOutputSoFar, getOutputSoFarOnLine, getOutputSizeSoFar, getCurrentLineNumberInOutput
 	- loadResource
 	- outputValue, outputLua, outputLuaTemplate
 	- startInterceptingOutput, stopInterceptingOutput
@@ -130,7 +130,7 @@
 
 
 
-local PP_VERSION = "1.18.0"
+local PP_VERSION = "1.18.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -189,12 +189,7 @@ else
 	major = tonumber(major)
 	minor = tonumber(minor)
 end
-local IS_LUA_51          = (major == 5 and minor == 1)
-local IS_LUA_52          = (major == 5 and minor == 2)
-local IS_LUA_53          = (major == 5 and minor == 3)
-local IS_LUA_51_OR_LATER = (major == 5 and minor >= 1) or (major ~= nil and major > 5)
 local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
-local IS_LUA_53_OR_LATER = (major == 5 and minor >= 3) or (major ~= nil and major > 5)
 
 local metaEnv  = nil
 local dummyEnv = {}
@@ -517,6 +512,49 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 				tok = {type="identifier", representation=word, value=word}
 			end
 
+		-- Number (binary).
+		elseif s:find("^0b", ptr) then
+			if not allowJitSyntax then
+				errorInFile(s, path, ptr, "Tokenizer", "Encountered binary numeral. (Feature not enabled.)")
+			end
+
+			local i1, i2, numStr = s:find("^(..[01]+)", ptr)
+
+			-- @Copypaste from below.
+			if not numStr then
+				errorInFile(s, path, ptr, "Tokenizer", "Malformed number.")
+			end
+
+			local numStrFallback = numStr
+
+			do
+				if s:find("^[Ii]", i2+1) then -- Imaginary part of complex number.
+					numStr = s:sub(i1, i2+1)
+					i2     = i2 + 1
+
+				elseif s:find("^[Uu][Ll][Ll]", i2+1) then -- Unsigned 64-bit integer.
+					numStr = s:sub(i1, i2+3)
+					i2     = i2 + 3
+				elseif s:find("^[Ll][Ll]", i2+1) then -- Signed 64-bit integer.
+					numStr = s:sub(i1, i2+2)
+					i2     = i2 + 2
+				end
+			end
+
+			local n = tonumber(numStr) or tonumber(numStrFallback)
+
+			if not n then
+				errorInFile(s, path, ptr, "Tokenizer", "Invalid number.")
+			end
+
+			if s:find("^[%w_]", i2+1) then
+				-- This is actually not an error in Lua 5.2 and 5.3. Maybe we should issue a warning instead of an error here?
+				errorInFile(s, path, i2+1, "Tokenizer", "Malformed number.")
+			end
+
+			ptr = i2 + 1
+			tok = {type="number", representation=numStrFallback, value=n}
+
 		-- Number.
 		elseif s:find("^%.?%d", ptr) then
 			local           pat, maybeInt, lua52Hex, i1, i2, numStr = NUM_HEX_FRAC_EXP, false, true , s:find(NUM_HEX_FRAC_EXP, ptr)
@@ -542,6 +580,7 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 
 				elseif not maybeInt or numStr:find(".", 1, true) then
 					-- void
+
 				elseif s:find("^[Uu][Ll][Ll]", i2+1) then -- Unsigned 64-bit integer.
 					numStr = s:sub(i1, i2+3)
 					i2     = i2 + 3
@@ -578,12 +617,12 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 			end
 
 			if s:find("^[%w_]", i2+1) then
-				-- This is actually only an error in Lua 5.1. Maybe we should issue a warning instead of an error here?
+				-- This is actually not an error in Lua 5.2 and 5.3. Maybe we should issue a warning instead of an error here?
 				errorInFile(s, path, i2+1, "Tokenizer", "Malformed number.")
 			end
 
 			ptr = i2+1
-			tok = {type="number", representation=numStr, value=n}
+			tok = {type="number", representation=numStrFallback, value=n}
 
 		-- Comment.
 		elseif s:find("^%-%-", ptr) then
@@ -1649,6 +1688,29 @@ function metaFuncs.getOutputSoFar(asTable)
 	return asTable and copyArray(current_meta_outputStack[1]) or table.concat(current_meta_outputStack[1])
 end
 
+-- getOutputSoFarOnLine()
+--   luaString = getOutputSoFarOnLine( )
+--   Get Lua code that's been outputted so far on the current line.
+--   Raises an error if no file or string is being processed.
+function metaFuncs.getOutputSoFarOnLine()
+	errorIfNotRunningMeta(2)
+
+	local lineFragments = {}
+
+	-- Should there be a way to get the contents of current_meta_output etc.? :GetMoreOutputFromStack
+	for i = #current_meta_outputStack[1], 1, -1 do
+		local fragment = current_meta_outputStack[1][i]
+
+		if fragment:find("\n", 1, true) then
+			tableInsert(lineFragments, (fragment:gsub(".*\n", "")))
+			break
+		end
+		tableInsert(lineFragments, fragment)
+	end
+
+	return table.concat(lineFragments)
+end
+
 -- getOutputSizeSoFar()
 --   size = getOutputSizeSoFar( )
 --   Get the amount of bytes outputted so far.
@@ -1805,7 +1867,7 @@ local numberFormatters = {
 --   stringToken      = newToken( "string",      contents [, longForm=false ] )
 --   whitespaceToken  = newToken( "whitespace",  contents )
 --   ppEntryToken     = newToken( "pp_entry",    isDouble )
---   ppKeywordToken   = newToken( "pp_keyword",  ppKeyword ) -- ppKeyword can be "@".
+--   ppKeywordToken   = newToken( "pp_keyword",  ppKeyword ) -- ppKeyword can be "file", "insert", "line" or "@".
 --   ppSymbolToken    = newToken( "pp_symbol",   identifier )
 --
 --   commentToken     = { type="comment",     representation=string, value=string, long=isLongForm }

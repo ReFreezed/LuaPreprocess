@@ -4,6 +4,8 @@ CD /D "%~dp0.."
 SETLOCAL EnableDelayedExpansion
 SET _fails=0
 
+ECHO Running examples.
+
 FOR /R examples %%G IN (*.lua2p) DO (
 	ECHO. & ECHO Processing example '%%~nxG'...
 	lua ./preprocess-cl.lua "%%G" --debug --silent
