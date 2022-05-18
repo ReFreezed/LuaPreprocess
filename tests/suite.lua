@@ -602,6 +602,32 @@ doTest("Resources and evaluation", function()
 	})
 end)
 
+doTest("Indentation", function()
+	local pp = ppChunk()
+
+	assert(pp.getIndentation(" \t foo") == " \t ")
+	assert(pp.getIndentation(" \n foo") == " ")
+
+	-- Spaces.
+	local indent, expect = pp.getIndentation(""        , 4), 0  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation(" "       , 4), 1  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("  "      , 4), 2  ; if indent ~= expect then  error(expect.." "..indent)  end
+
+	-- Tab last.
+	local indent, expect = pp.getIndentation("\t"      , 4), 4  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation(" \t"     , 4), 4  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("  \t"    , 4), 4  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("   \t"   , 4), 4  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("    \t"  , 4), 8  ; if indent ~= expect then  error(expect.." "..indent)  end
+
+	-- Two tabs.
+	local indent, expect = pp.getIndentation("\t\t"    , 4), 8  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("\t \t"   , 4), 8  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("\t  \t"  , 4), 8  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("\t   \t" , 4), 8  ; if indent ~= expect then  error(expect.." "..indent)  end
+	local indent, expect = pp.getIndentation("\t    \t", 4), 12 ; if indent ~= expect then  error(expect.." "..indent)  end
+end)
+
 doTest("Misc.", function()
 	local pp = ppChunk()
 

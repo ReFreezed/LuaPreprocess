@@ -16,15 +16,17 @@
 	Global functions in metaprograms:
 	- copyTable
 	- escapePattern
-	- getFileContents, fileExists
+	- getIndentation
 	- pack
 	- pairsSorted
 	- printf
+	- readFile, writeFile, fileExists
 	- run
 	- sortNatural, compareNatural
 	- tokenize, newToken, concatTokens, removeUselessTokens, eachToken, isToken, getNextUsefulToken
 	- toLua, serialize, evaluate
 	Only during processing:
+	- getCurrentIndentation
 	- getCurrentPathIn, getCurrentPathOut
 	- getOutputSoFar, getOutputSoFarOnLine, getOutputSizeSoFar, getCurrentLineNumberInOutput
 	- loadResource
@@ -220,6 +222,7 @@ local current_meta_maxLogLevel           = "trace"
 
 local _concatTokens
 local _loadResource
+local _readFile, _writeFile, fileExists
 local _tokenize
 local assertarg
 local cleanError
@@ -229,7 +232,6 @@ local errorf, errorLine, errorfLine, errorOnLine, errorInFile, errorAtToken, err
 local errorIfNotRunningMeta
 local escapePattern
 local F, tryToFormatError
-local getFileContents, fileExists
 local getLineNumber
 local getNextUsableToken
 local getRelativeLocationText
@@ -640,7 +642,7 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 			end
 
 			if tok.long then
-				-- Check for nesting of [[...]], which is depricated in Lua.
+				-- Check for nesting of [[...]], which is deprecated in Lua.
 				local chunk, err = loadLuaString("--"..tok.representation, "@")
 
 				if not chunk then
@@ -722,7 +724,7 @@ function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
 				end
 			end
 
-			-- Check for nesting of [[...]], which is depricated in Lua.
+			-- Check for nesting of [[...]], which is deprecated in Lua.
 			local valueChunk, err = loadLuaString("return"..tok.representation, "@")
 
 			if not valueChunk then
@@ -865,7 +867,7 @@ end
 
 
 
-function getFileContents(path, isTextFile)
+function _readFile(path, isTextFile)
 	assertarg(1, path,       "string")
 	assertarg(2, isTextFile, "boolean","nil")
 
@@ -875,6 +877,25 @@ function getFileContents(path, isTextFile)
 	local contents = file:read"*a"
 	file:close()
 	return contents
+end
+
+-- success, error = _writeFile( path, [ isTextFile=false, ] contents )
+function _writeFile(path, isTextFile, contents)
+	assertarg(1, path, "string")
+
+	if type(isTextFile) == "boolean" then
+		assertarg(3, contents, "string")
+	else
+		isTextFile, contents = false, isTextFile
+		assertarg(2, contents, "string")
+	end
+
+	local file, err = io.open(path, "w"..(isTextFile and "" or "b"))
+	if not file then  return false, err  end
+
+	file:write(contents)
+	file:close()
+	return true
 end
 
 function fileExists(path)
@@ -1453,7 +1474,7 @@ function _loadResource(resourceName, isParsing, nameTokOrErrLevel, stats)
 
 		else
 			local err
-			lua, err = getFileContents(resourceName, true)
+			lua, err = _readFile(resourceName, true)
 
 			if lua then
 				-- void
@@ -1506,10 +1527,17 @@ local metaFuncs = {}
 --   Print a formatted string to stdout.
 metaFuncs.printf = printf
 
--- getFileContents()
---   contents = getFileContents( path [, isTextFile=false ] )
+-- readFile()
+--   contents = readFile( path [, isTextFile=false ] )
 --   Get the entire contents of a binary file or text file. Returns nil and a message on error.
-metaFuncs.getFileContents = getFileContents
+metaFuncs.readFile        = _readFile
+metaFuncs.getFileContents = _readFile -- @Deprecated
+
+-- writeFile()
+--   success, error = writeFile( path, contents ) -- Writes a binary file.
+--   success, error = writeFile( path, isTextFile, contents )
+--   Write an entire binary file or text file.
+metaFuncs.writeFile = _writeFile
 
 -- fileExists()
 --   bool = fileExists( path )
@@ -1688,11 +1716,7 @@ function metaFuncs.getOutputSoFar(asTable)
 	return asTable and copyArray(current_meta_outputStack[1]) or table.concat(current_meta_outputStack[1])
 end
 
--- getOutputSoFarOnLine()
---   luaString = getOutputSoFarOnLine( )
---   Get Lua code that's been outputted so far on the current line.
---   Raises an error if no file or string is being processed.
-function metaFuncs.getOutputSoFarOnLine()
+local function _getOutputSoFarOnLine()
 	errorIfNotRunningMeta(2)
 
 	local lineFragments = {}
@@ -1710,6 +1734,12 @@ function metaFuncs.getOutputSoFarOnLine()
 
 	return table.concat(lineFragments)
 end
+
+-- getOutputSoFarOnLine()
+--   luaString = getOutputSoFarOnLine( )
+--   Get Lua code that's been outputted so far on the current line.
+--   Raises an error if no file or string is being processed.
+metaFuncs.getOutputSoFarOnLine = _getOutputSoFarOnLine
 
 -- getOutputSizeSoFar()
 --   size = getOutputSizeSoFar( )
@@ -1740,6 +1770,40 @@ function metaFuncs.getCurrentLineNumberInOutput()
 	end
 
 	return ln
+end
+
+local function _getIndentation(line, tabWidth)
+	if not tabWidth then
+		return line:match"^[ \t]*"
+	end
+
+	local indent = 0
+
+	for i = 1, #line do
+		if line:sub(i, i) == "\t" then
+			indent = math.floor(indent/tabWidth)*tabWidth + tabWidth
+		elseif line:sub(i, i) == " " then
+			indent = indent + 1
+		else
+			break
+		end
+	end
+
+	return indent
+end
+
+-- getIndentation()
+--   string = getIndentation( line )
+--   size   = getIndentation( line, tabWidth )
+--   Get indentation of a line, either as a string or as size in spaces.
+metaFuncs.getIndentation = _getIndentation
+
+-- getCurrentIndentation()
+--   string = getCurrentIndentation( )
+--   size   = getCurrentIndentation( tabWidth )
+--   Get the indentation of the current line, either as a string or as size in spaces.
+function metaFuncs.getCurrentIndentation(tabWidth)
+	return (_getIndentation(_getOutputSoFarOnLine(), tabWidth))
 end
 
 -- getCurrentPathIn()
@@ -2893,7 +2957,7 @@ local function _processFileOrString(params, isFile)
 		if virtualPathIn == "-" then
 			luaUnprocessed, err = io.stdin:read"*a"
 		else
-			luaUnprocessed, err = getFileContents(virtualPathIn, true)
+			luaUnprocessed, err = _readFile(virtualPathIn, true)
 		end
 
 		if not luaUnprocessed then
