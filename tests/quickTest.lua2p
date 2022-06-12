@@ -133,6 +133,9 @@ local a = @@PASS_THROUGH( @@"tests/quickTest_expression.txt" )
 local b = @@PASS_THROUGH( !!("2") )
 local c = @@PASS_THROUGH{ 1 + !(2) + 3 }
 local d = @@PASS_THROUGH(@@PASS_THROUGH{@@PASS_THROUGH( !!("1")!!("+")!!("2") )})
+local e = @@PASS_THROUGH( 1
+	-- !print("Oh so meta!") -- @Incomplete
++ 2 )
 
 !local t    = {field={object={method=function(obj, lua) return lua end}}}
 !local keys = {"object"}

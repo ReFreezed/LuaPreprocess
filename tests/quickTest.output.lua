@@ -96,6 +96,7 @@ local a = 1+2*3
 local b = 2
 local c = { 1 + 2 + 3 }
 local d = {1+2}
+local e = 1 + 2
 
 local n = 58
 

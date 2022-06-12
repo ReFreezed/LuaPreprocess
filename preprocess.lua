@@ -2221,25 +2221,21 @@ function metaEnv.__ASSERTLUA(lua)
 	return lua
 end
 
-local function finalizeMacro(errLevel, lua)
+local function finalizeMacro(lua)
 	if lua == nil then
-		return (_stopInterceptingOutput(1+errLevel))
+		return (_stopInterceptingOutput(2))
 	elseif type(lua) ~= "string" then
-		error("[Macro] Value is not Lua code.", 1+errLevel)
+		error("[Macro] Value is not Lua code.", 2)
 	elseif current_meta_output[1] then
-		error("[Macro] Got Lua code from both value expression and outputLua(). Only one method may be used.", 1+errLevel) -- It's also possible interception calls are unbalanced.
+		error("[Macro] Got Lua code from both value expression and outputLua(). Only one method may be used.", 2) -- It's also possible interception calls are unbalanced.
 	else
-		_stopInterceptingOutput(1+errLevel) -- Returns "" because nothing was outputted.
+		_stopInterceptingOutput(2) -- Returns "" because nothing was outputted.
 		return lua
 	end
 end
-function metaEnv.__M() -- Simple macro.
+function metaEnv.__M()
 	metaFuncs.startInterceptingOutput()
 	return finalizeMacro
-end
-function metaEnv.__MACRO(cb) -- Complex macro.
-	metaFuncs.startInterceptingOutput()
-	return (finalizeMacro(2, cb()))
 end
 
 function metaEnv.__EVALSYMBOL(v)
@@ -2270,6 +2266,12 @@ local function getLineCountWithCode(tokens)
 
 	return lineCount
 end
+
+
+
+--
+-- Preprocessor expansions (symbols, macros etc.).
+--
 
 local function popTokens(tokens, lastIndexToPop)
 	for i = #tokens, lastIndexToPop, -1 do
@@ -2516,6 +2518,7 @@ local function processPreprocessorBlockInMacroArgument(tokens, tokenStack)
 end
 
 -- successfullyExpandedAccordingToComplexity = expandMacro( tokens, tokenStack, macroPrefix, macroSuffix, macroStartTok, isNested, macroIsComplex )
+-- tokens is only modified if successful.
 local function expandMacro(tokens, tokenStack, macroPrefix, macroSuffix, macroStartTok, isNested, macroIsComplex)
 	-- @Robustness: Make sure key tokens came from the same source file.
 	local macroTokens = {}
@@ -2631,7 +2634,10 @@ local function expandMacro(tokens, tokenStack, macroPrefix, macroSuffix, macroSt
 				errorAtToken(argNonPpStartTok, nil, "Macro", "Syntax error: Could not find end of table constructor before EOF.")
 
 			-- Preprocessor block in macro.
+			-- @Incomplete: Support any pp_entry code.
 			elseif tok.type == "pp_entry" and isTokenAndNotNil(tokenStack[len-1], "punctuation", "(") then
+				-- if not macroIsComplex then  return false  end -- @Speed: Don't return if not, or further than, necessary.
+
 				prepareForNewPartOfMacroArgument(macroTokens, argNonPpTokens, argNonPpStartTok, tok, isFirstPart)
 				processPreprocessorBlockInMacroArgument(macroTokens, tokenStack)
 
@@ -2735,7 +2741,10 @@ local function expandMacro(tokens, tokenStack, macroPrefix, macroSuffix, macroSt
 						errorAtToken(parensStartTok, nil, "Macro", "Syntax error: Could not find end of argument list before EOF.")
 
 					-- Preprocessor block in macro.
+					-- @Incomplete: Support any pp_entry code.
 					elseif tok.type == "pp_entry" and isTokenAndNotNil(tokenStack[len-1], "punctuation", "(") then
+						-- if not macroIsComplex then  return false  end -- @Speed: Don't return if not, or further than, necessary.
+
 						prepareForNewPartOfMacroArgument(macroTokens, argNonPpTokens, argNonPpStartTok, tok, isFirstPart)
 						processPreprocessorBlockInMacroArgument(macroTokens, tokenStack)
 
@@ -2869,36 +2878,38 @@ local function expandMacro(tokens, tokenStack, macroPrefix, macroSuffix, macroSt
 		tableInsert(tokens, newTokenAt({type="punctuation", value="(" , representation="("              }, macroStartTok))
 	end
 
-	if not macroIsComplex then
-		-- Simple macro: __M()(2,<expression>)
+	if macroIsComplex then
+		-- Complex macro: __M()((function()<outputStatements>end)())
 		tableInsert(tokens, newTokenAt({type="identifier" , value="__M"     , representation="__M"     }, macroStartTok))
 		tableInsert(tokens, newTokenAt({type="punctuation", value="("       , representation="("       }, macroStartTok))
 		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, macroStartTok))
 		tableInsert(tokens, newTokenAt({type="punctuation", value="("       , representation="("       }, macroStartTok))
-		tableInsert(tokens, newTokenAt({type="number"     , value=2         , representation="2"       }, macroStartTok))
-		tableInsert(tokens, newTokenAt({type="punctuation", value=","       , representation=","       }, macroStartTok))
-
-		for _, tok in ipairs(macroTokens) do
-			tableInsert(tokens, tok)
-		end
-
-		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, tokens[#tokens]))
-
-	else
-		-- Complex macro: __MACRO(function()<outputStatements>end)
-		tableInsert(tokens, newTokenAt({type="identifier" , value="__MACRO" , representation="__MACRO" }, macroStartTok))
 		tableInsert(tokens, newTokenAt({type="punctuation", value="("       , representation="("       }, macroStartTok))
 		tableInsert(tokens, newTokenAt({type="keyword"    , value="function", representation="function"}, macroStartTok))
 		tableInsert(tokens, newTokenAt({type="punctuation", value="("       , representation="("       }, macroStartTok))
 		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, macroStartTok))
-		tableInsert(tokens, newTokenAt({type="keyword"    , value="return"  , representation="return"  }, macroStartTok))
-		tableInsert(tokens, newTokenAt({type="whitespace" , value=" "       , representation=" "       }, macroStartTok))
 
 		for _, tok in ipairs(macroTokens) do
 			tableInsert(tokens, tok)
 		end
 
 		tableInsert(tokens, newTokenAt({type="keyword"    , value="end"     , representation="end"     }, tokens[#tokens]))
+		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, tokens[#tokens]))
+		tableInsert(tokens, newTokenAt({type="punctuation", value="("       , representation="("       }, tokens[#tokens]))
+		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, tokens[#tokens]))
+		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, tokens[#tokens]))
+
+	else
+		-- Simple macro: __M()(<expression>)
+		tableInsert(tokens, newTokenAt({type="identifier" , value="__M"     , representation="__M"     }, macroStartTok))
+		tableInsert(tokens, newTokenAt({type="punctuation", value="("       , representation="("       }, macroStartTok))
+		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, macroStartTok))
+		tableInsert(tokens, newTokenAt({type="punctuation", value="("       , representation="("       }, macroStartTok))
+
+		for _, tok in ipairs(macroTokens) do
+			tableInsert(tokens, tok)
+		end
+
 		tableInsert(tokens, newTokenAt({type="punctuation", value=")"       , representation=")"       }, tokens[#tokens]))
 	end
 
@@ -2910,6 +2921,7 @@ local function expandMacro(tokens, tokenStack, macroPrefix, macroSuffix, macroSt
 	return true
 end
 
+-- tokens = doLateExpansionsMacros( tokensToExpand, stats, macroPrefix, macroSuffix )
 local function doLateExpansionsMacros(tokensToExpand, stats, macroPrefix, macroSuffix)
 	--
 	-- Expand expressions:
@@ -2960,6 +2972,369 @@ local function doLateExpansionsMacros(tokensToExpand, stats, macroPrefix, macroS
 
 	return tokens
 end
+
+-- tokens = doExpansions( params, tokensToExpand, stats )
+local function doExpansions(params, tokens, stats)
+	local macroPrefix = params.macroPrefix or ""
+	local macroSuffix = params.macroSuffix or ""
+
+	tokens = doEarlyExpansions        (tokens, stats)
+	tokens = doLateExpansionsResources(tokens, stats, params.backtickStrings, params.jitSyntax)
+	tokens = doLateExpansionsMacros   (tokens, stats, macroPrefix, macroSuffix)
+
+	return tokens
+end
+
+
+
+--
+-- Metaprogram generation.
+--
+
+-- plainOutputTokens, lineNumber = flushPlainOutputTokens( params, metaParts, plainOutputTokens, lineNumber )
+local function flushPlainOutputTokens(params, metaParts, plainOutputTokens, ln)
+	if not plainOutputTokens[1] then  return plainOutputTokens, ln  end
+
+	local lua = _concatTokens(plainOutputTokens, ln, params.addLineNumbers, nil, nil)
+	local luaMeta
+
+	if current_parsingAndMeta_isDebug then
+		luaMeta = F("__LUA(%q)\n", lua):gsub("\\\n", "\\n") -- Note: "\\\n" does not match "\n".
+	else
+		luaMeta = F("__LUA%q", lua)
+	end
+
+	tableInsert(metaParts, luaMeta)
+
+	return {}, plainOutputTokens[#plainOutputTokens].line
+end
+
+-- tokenIndex = processMetaBlock( params, tokens, metaParts, tokenIndex, doOutputLua, ppEntryToken )
+local function processMetaBlock(params, tokens, metaParts, tokenIndex, doOutputLua, ppEntryTok)
+	local parensStartTokIndex = tokenIndex - 1
+	local tokensInBlock       = {}
+	local parensDepth         = 1 -- @Incomplete: Use depthStack like in other places.
+
+	while true do
+		local tok = tokens[tokenIndex]
+
+		if not tok then
+			errorAtToken(ppEntryTok, nil, "Parser", "Missing end of preprocessor block.")
+
+		elseif isToken(tok, "punctuation", "(") then
+			parensDepth = parensDepth + 1
+
+		elseif isToken(tok, "punctuation", ")") then
+			parensDepth = parensDepth - 1
+			if parensDepth == 0 then  break  end
+
+		elseif tok.type:find"^pp_" then
+			errorAtToken(tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(ppEntryTok, tok))
+		end
+
+		tableInsert(tokensInBlock, tok)
+		tokenIndex = tokenIndex + 1
+	end
+
+	local metaBlock = _concatTokens(tokensInBlock, nil, params.addLineNumbers, nil, nil)
+
+	if loadLuaString("return("..metaBlock..")") then
+		tableInsert(metaParts, (doOutputLua and "__LUA((" or "__VAL(("))
+		tableInsert(metaParts, metaBlock)
+		tableInsert(metaParts, "))\n")
+
+	elseif metaBlock:find(",", 1, true) and loadLuaString("return'',"..metaBlock) then
+		errorAfterToken(tokens[parensStartTokIndex], "Parser", "Ambiguous preprocessor block contents. (Comma-separated lists are not supported here.)")
+
+	elseif doOutputLua then
+		-- We could do something other than error here. Room for more functionality.
+		errorAfterToken(tokens[parensStartTokIndex], "Parser", "Preprocessor block does not contain a valid value expression.")
+
+	else
+		tableInsert(metaParts, metaBlock)
+		tableInsert(metaParts, "\n")
+	end
+
+	return tokenIndex
+end
+
+-- plainOutputTokens = outputFinalDualValueStatement( params, tokens, metaParts, plainOutputTokens, metaLineIndexStart, metaLineIndexEnd )
+local function outputFinalDualValueStatement(params, tokens, metaParts, plainOutputTokens, metaLineIndexStart, metaLineIndexEnd)
+	-- We expect the statement to look like any of these:
+	-- !!local x = ...
+	-- !!x = ...
+
+	-- Check whether local or not.
+	local iPrev, tok, i = metaLineIndexStart-1, getNextUsableToken(tokens, metaLineIndexStart, metaLineIndexEnd)
+	local isLocal       = isTokenAndNotNil(tok, "keyword", "local")
+
+	if isLocal then
+		iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
+	end
+
+	-- Check for identifier.
+	if isTokenAndNotNil(tok, "identifier") then
+		-- void
+	elseif isLocal then
+		errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier.")
+	else
+		errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier or 'local'.")
+	end
+
+	local identTokens = {tok}
+	iPrev, tok, i     = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
+
+	while isTokenAndNotNil(tok, "punctuation", ",") do
+		iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
+		if not isTokenAndNotNil(tok, "identifier") then
+			errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier after ','.")
+		end
+
+		tableInsert(identTokens, tok)
+		iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
+	end
+
+	-- Check for "=".
+	if not isTokenAndNotNil(tok, "punctuation", "=") then
+		errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected '='.")
+	end
+
+	local indexAfterEqualSign = i+1
+
+	-- Check if the rest of the line is an expression.
+	local parts = {"return'',"}
+	insertTokenRepresentations(parts, tokens, indexAfterEqualSign, metaLineIndexEnd)
+
+	if not loadLuaString(table.concat(parts)) then
+		iPrev, tok, i = i, getNextUsableToken(tokens, indexAfterEqualSign, metaLineIndexEnd)
+		if tok then
+			errorAtToken(tok, nil, "Parser/DualCodeLine", "Invalid value expression after '='.")
+		else
+			errorAfterToken(tokens[indexAfterEqualSign-1], "Parser/DualCodeLine", "Invalid value expression after '='.")
+		end
+	end
+
+	-- Output.
+	local s = metaParts[#metaParts]
+	if s and s:sub(#s) ~= "\n" then
+		tableInsert(metaParts, "\n")
+	end
+
+	if current_parsingAndMeta_isDebug then
+		tableInsert(metaParts, '__LUA("')
+
+		if params.addLineNumbers then
+			outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
+		end
+
+		if isLocal then  tableInsert(metaParts, "local ")  end
+
+		for identIndex, identTok in ipairs(identTokens) do
+			if identIndex > 1 then  tableInsert(metaParts, ", ")  end
+			tableInsert(metaParts, identTok.value)
+		end
+		tableInsert(metaParts, ' = ")')
+		for identIndex, identTok in ipairs(identTokens) do
+			if identIndex > 1 then  tableInsert(metaParts, '; __LUA(", ")')  end
+			tableInsert(metaParts, "; __VAL(")
+			tableInsert(metaParts, identTok.value)
+			tableInsert(metaParts, ")")
+		end
+
+		if isToken(getNextUsableToken(tokens, metaLineIndexEnd, 1, -1), "punctuation", ";") then
+			tableInsert(metaParts, '; __LUA(";\\n");\n')
+		else
+			tableInsert(metaParts, '; __LUA("\\n")\n')
+		end
+
+	else
+		tableInsert(metaParts, '__LUA"')
+
+		if params.addLineNumbers then
+			outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
+		end
+
+		if isLocal then  tableInsert(metaParts, "local ")  end
+
+		for identIndex, identTok in ipairs(identTokens) do
+			if identIndex > 1 then  tableInsert(metaParts, ", ")  end
+			tableInsert(metaParts, identTok.value)
+		end
+		tableInsert(metaParts, ' = "')
+		for identIndex, identTok in ipairs(identTokens) do
+			if identIndex > 1 then  tableInsert(metaParts, '__LUA", "')  end
+			tableInsert(metaParts, "__VAL(")
+			tableInsert(metaParts, identTok.value)
+			tableInsert(metaParts, ")")
+		end
+
+		if isToken(getNextUsableToken(tokens, metaLineIndexEnd, 1, -1), "punctuation", ";") then
+			tableInsert(metaParts, '__LUA";\\n";\n')
+		else
+			tableInsert(metaParts, '__LUA"\\n"\n')
+		end
+	end
+
+	plainOutputTokens, ln = flushPlainOutputTokens(params, metaParts, plainOutputTokens, ln)
+	return plainOutputTokens
+end
+
+-- Note: Can be multiple actual lines if extended.
+local function processMetaLine(params, tokens, tokenIndex, metaParts, plainOutputTokens, isDual, ppEntryTok)
+	local metaLineIndexStart = tokenIndex
+	local depthStack         = {}
+
+	while true do
+		local tok = tokens[tokenIndex]
+
+		if not tok then
+			if depthStack[1] then
+				tok = depthStack[#depthStack].startToken
+				errorAtToken(
+					tok, nil, "Parser", "Syntax error: Could not find matching bracket before EOF. (Preprocessor line starts %s)",
+					getRelativeLocationText(ppEntryTok, tok)
+				)
+			end
+			if isDual then
+				plainOutputTokens = outputFinalDualValueStatement(params, tokens, metaParts, plainOutputTokens, metaLineIndexStart, tokenIndex-1)
+			end
+			break
+		end
+
+		-- End of meta-line.
+		local tokType = tok.type
+		if
+			not depthStack[1] and (
+				(tokType == "whitespace" and tok.value:find("\n", 1, true)) or
+				(tokType == "comment"    and not tok.long)
+			)
+		then
+			if tokType == "comment" then
+				tableInsert(metaParts, tok.representation)
+			else
+				tableInsert(metaParts, "\n")
+			end
+
+			if isDual then
+				plainOutputTokens = outputFinalDualValueStatement(params, tokens, metaParts, plainOutputTokens, metaLineIndexStart, tokenIndex-1)
+			end
+
+			-- Fix whitespace after the line.
+			local tokNext = tokens[tokenIndex]
+			if isDual or isTokenAndNotNil(tokNext, "pp_entry") then
+				-- void
+
+			elseif tokType == "whitespace" then
+				local tokExtra          = copyTable(tok)
+				tokExtra.value          = tok.value:gsub("^[^\n]+", "")
+				tokExtra.representation = tokExtra.value
+				tokExtra.position       = tokExtra.position+#tok.value-#tokExtra.value
+				tableInsert(plainOutputTokens, tokExtra)
+
+			elseif tokType == "comment" and not tok.long then
+				local tokExtra = newTokenAt({type="whitespace", representation="\n", value="\n"}, tok)
+				tableInsert(plainOutputTokens, tokExtra)
+			end
+
+			break
+
+		-- Nested metaprogram (not supported).
+		elseif tokType == "pp_entry" then
+			errorAtToken(tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(ppEntryTok, tok))
+
+		-- Continuation of meta-line.
+		else
+			tableInsert(metaParts, tok.representation)
+
+			if isToken(tok, "punctuation", "(") then
+				tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]=")"})
+			elseif isToken(tok, "punctuation", "[") then
+				tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="]"})
+			elseif isToken(tok, "punctuation", "{") then
+				tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="}"})
+
+			elseif
+				isToken(tok, "punctuation", ")") or
+				isToken(tok, "punctuation", "]") or
+				isToken(tok, "punctuation", "}")
+			then
+				if not depthStack[1] then
+					errorAtToken(tok, nil, "Parser", "Unexpected '%s'.", tok.value)
+				elseif not isToken(tok, unpack(depthStack[#depthStack])) then
+					local startTok = depthStack[#depthStack].startToken
+					errorAtToken(
+						tok, nil, "Parser", "Expected '%s' (to close '%s' %s) but got '%s'. (Preprocessor line starts %s)",
+						depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value, getRelativeLocationText(ppEntryTok, tok)
+					)
+				end
+				tableRemove(depthStack)
+			end
+		end
+
+		tokenIndex = tokenIndex + 1
+	end
+
+	return tokenIndex, plainOutputTokens
+end
+
+-- lua = generateMetaprogram( params, tokens )
+local function generateMetaprogram(params, tokens)
+	local metaParts         = {}
+	local tokenIndex        = 1
+	local plainOutputTokens = {}
+	local ln                = 0
+
+	while true do
+		local tok = tokens[tokenIndex]
+		if not tok then  break  end
+
+		--
+		-- Normal code.
+		--
+		if tok.type ~= "pp_entry" then
+			tableInsert(plainOutputTokens, tok)
+
+		--
+		-- Metaprogram, preprocessor block:
+		-- !( function sum(a, b) return a+b; end )
+		-- local text = !("Hello, mr. "..getName())
+		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
+		--
+		elseif isTokenAndNotNil(tokens[tokenIndex+1], "punctuation", "(") then
+			tokenIndex            = tokenIndex + 2 -- '!(' or '!!('
+			plainOutputTokens, ln = flushPlainOutputTokens(params, metaParts, plainOutputTokens, ln)
+			tokenIndex            = processMetaBlock(params, tokens, metaParts, tokenIndex, tok.double, tok)
+
+		--
+		-- Metaprogram, preprocessor line:
+		-- !for i = 1, 3 do
+		--     print("Marco? Polo!")
+		-- !end
+		--
+		-- Metaprogram, preprocessor line, extended:
+		-- !newClass{
+		--     name  = "Entity",
+		--     props = {x=0, y=0},
+		-- }
+		--
+		-- Metaprogram, dual code:
+		-- !!local foo = "A"
+		-- local bar = foo..!(foo)
+		--
+		else
+			tokenIndex                    = tokenIndex + 1 -- '!' or '!!'
+			plainOutputTokens, ln         = flushPlainOutputTokens(params, metaParts, plainOutputTokens, ln)
+			tokenIndex, plainOutputTokens = processMetaLine(params, tokens, tokenIndex, metaParts, plainOutputTokens, tok.double, tok)
+		end
+
+		tokenIndex = tokenIndex + 1
+	end
+
+	flushPlainOutputTokens(params, metaParts, plainOutputTokens, ln)
+	return table.concat(metaParts)
+end
+
+
 
 local function _processFileOrString(params, isFile)
 	if isFile then
@@ -3036,360 +3411,19 @@ local function _processFileOrString(params, isFile)
 	end
 
 	-- Expand preprocessor stuff.
-	local macroPrefix = params.macroPrefix or ""
-	local macroSuffix = params.macroSuffix or ""
-
-	tokens = doEarlyExpansions        (tokens, stats)
-	tokens = doLateExpansionsResources(tokens, stats, params.backtickStrings, params.jitSyntax)
-	tokens = doLateExpansionsMacros   (tokens, stats, macroPrefix, macroSuffix)
-
+	tokens           = doExpansions(params, tokens, stats)
 	stats.tokenCount = #tokens
 
 	-- Generate metaprogram.
-	--==============================================================
-
-	local metaParts = {}
-
-	local plainOutputTokens = {} -- Used by flushPlainOutputTokens(), processMetaLine() and the loop.
-	local ln                = 0  -- Used by flushPlainOutputTokens().
-	local tokenIndex        = 1  -- Used by processMetaBlock(), processMetaLine() and the loop.
-
-	local function flushPlainOutputTokens()
-		if not plainOutputTokens[1] then  return  end
-
-		local lua = _concatTokens(plainOutputTokens, ln, params.addLineNumbers, nil, nil)
-		local luaMeta
-
-		if current_parsingAndMeta_isDebug then
-			luaMeta = F("__LUA(%q)\n", lua):gsub("\\\n", "\\n") -- Note: "\\\n" does not match "\n".
-		else
-			luaMeta = F("__LUA%q", lua)
-		end
-
-		tableInsert(metaParts, luaMeta)
-		ln = plainOutputTokens[#plainOutputTokens].line
-
-		plainOutputTokens = {}
-	end
-
-	local function processMetaBlock(doOutputLua, ppEntryTok)
-		local parensStartTokIndex = tokenIndex - 1
-		local tokensInBlock       = {}
-		local parensDepth         = 1 -- @Incomplete: Use depthStack like in other places.
-
-		while true do
-			local tok = tokens[tokenIndex]
-
-			if not tok then
-				errorAtToken(ppEntryTok, nil, "Parser", "Missing end of preprocessor block.")
-
-			elseif isToken(tok, "punctuation", "(") then
-				parensDepth = parensDepth + 1
-
-			elseif isToken(tok, "punctuation", ")") then
-				parensDepth = parensDepth - 1
-				if parensDepth == 0 then  break  end
-
-			elseif tok.type:find"^pp_" then
-				errorAtToken(tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(ppEntryTok, tok))
-			end
-
-			tableInsert(tokensInBlock, tok)
-			tokenIndex = tokenIndex + 1
-		end
-
-		local metaBlock = _concatTokens(tokensInBlock, nil, params.addLineNumbers, nil, nil)
-
-		if loadLuaString("return("..metaBlock..")") then
-			tableInsert(metaParts, (doOutputLua and "__LUA((" or "__VAL(("))
-			tableInsert(metaParts, metaBlock)
-			tableInsert(metaParts, "))\n")
-
-		elseif metaBlock:find(",", 1, true) and loadLuaString("return'',"..metaBlock) then
-			errorAfterToken(tokens[parensStartTokIndex], "Parser", "Ambiguous preprocessor block contents. (Comma-separated lists are not supported here.)")
-
-		elseif doOutputLua then
-			-- We could do something other than error here. Room for more functionality.
-			errorAfterToken(tokens[parensStartTokIndex], "Parser", "Preprocessor block does not contain a valid value expression.")
-
-		else
-			tableInsert(metaParts, metaBlock)
-			tableInsert(metaParts, "\n")
-		end
-	end
-
-	local function outputFinalDualValueStatement(metaLineIndexStart, metaLineIndexEnd)
-		-- We expect the statement to look like any of these:
-		-- !!local x = ...
-		-- !!x = ...
-
-		-- Check whether local or not.
-		local iPrev, tok, i = metaLineIndexStart-1, getNextUsableToken(tokens, metaLineIndexStart, metaLineIndexEnd)
-		local isLocal       = isTokenAndNotNil(tok, "keyword", "local")
-
-		if isLocal then
-			iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
-		end
-
-		-- Check for identifier.
-		if isTokenAndNotNil(tok, "identifier") then
-			-- void
-		elseif isLocal then
-			errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier.")
-		else
-			errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier or 'local'.")
-		end
-
-		local identTokens = {tok}
-		iPrev, tok, i     = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
-
-		while isTokenAndNotNil(tok, "punctuation", ",") do
-			iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
-			if not isTokenAndNotNil(tok, "identifier") then
-				errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected an identifier after ','.")
-			end
-
-			tableInsert(identTokens, tok)
-			iPrev, tok, i = i, getNextUsableToken(tokens, i+1, metaLineIndexEnd)
-		end
-
-		-- Check for "=".
-		if not isTokenAndNotNil(tok, "punctuation", "=") then
-			errorAfterToken(tokens[iPrev], "Parser/DualCodeLine", "Expected '='.")
-		end
-
-		local indexAfterEqualSign = i+1
-
-		-- Check if the rest of the line is an expression.
-		local parts = {"return'',"}
-		insertTokenRepresentations(parts, tokens, indexAfterEqualSign, metaLineIndexEnd)
-
-		if not loadLuaString(table.concat(parts)) then
-			iPrev, tok, i = i, getNextUsableToken(tokens, indexAfterEqualSign, metaLineIndexEnd)
-			if tok then
-				errorAtToken(tok, nil, "Parser/DualCodeLine", "Invalid value expression after '='.")
-			else
-				errorAfterToken(tokens[indexAfterEqualSign-1], "Parser/DualCodeLine", "Invalid value expression after '='.")
-			end
-		end
-
-		-- Output.
-		local s = metaParts[#metaParts]
-		if s and s:sub(#s) ~= "\n" then
-			tableInsert(metaParts, "\n")
-		end
-
-		if current_parsingAndMeta_isDebug then
-			tableInsert(metaParts, '__LUA("')
-
-			if params.addLineNumbers then
-				outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
-			end
-
-			if isLocal then  tableInsert(metaParts, "local ")  end
-
-			for identIndex, identTok in ipairs(identTokens) do
-				if identIndex > 1 then  tableInsert(metaParts, ", ")  end
-				tableInsert(metaParts, identTok.value)
-			end
-			tableInsert(metaParts, ' = ")')
-			for identIndex, identTok in ipairs(identTokens) do
-				if identIndex > 1 then  tableInsert(metaParts, '; __LUA(", ")')  end
-				tableInsert(metaParts, "; __VAL(")
-				tableInsert(metaParts, identTok.value)
-				tableInsert(metaParts, ")")
-			end
-
-			if isToken(getNextUsableToken(tokens, metaLineIndexEnd, 1, -1), "punctuation", ";") then
-				tableInsert(metaParts, '; __LUA(";\\n");\n')
-			else
-				tableInsert(metaParts, '; __LUA("\\n")\n')
-			end
-
-		else
-			tableInsert(metaParts, '__LUA"')
-
-			if params.addLineNumbers then
-				outputLineNumber(metaParts, tokens[metaLineIndexStart].line)
-			end
-
-			if isLocal then  tableInsert(metaParts, "local ")  end
-
-			for identIndex, identTok in ipairs(identTokens) do
-				if identIndex > 1 then  tableInsert(metaParts, ", ")  end
-				tableInsert(metaParts, identTok.value)
-			end
-			tableInsert(metaParts, ' = "')
-			for identIndex, identTok in ipairs(identTokens) do
-				if identIndex > 1 then  tableInsert(metaParts, '__LUA", "')  end
-				tableInsert(metaParts, "__VAL(")
-				tableInsert(metaParts, identTok.value)
-				tableInsert(metaParts, ")")
-			end
-
-			if isToken(getNextUsableToken(tokens, metaLineIndexEnd, 1, -1), "punctuation", ";") then
-				tableInsert(metaParts, '__LUA";\\n";\n')
-			else
-				tableInsert(metaParts, '__LUA"\\n"\n')
-			end
-		end
-
-		flushPlainOutputTokens()
-	end--outputFinalDualValueStatement()
-
-	-- Note: Can be multiple actual lines if extended.
-	local function processMetaLine(isDual, ppEntryTok)
-		local metaLineIndexStart = tokenIndex
-		local depthStack         = {}
-
-		while true do
-			local tok = tokens[tokenIndex]
-
-			if not tok then
-				if depthStack[1] then
-					tok = depthStack[#depthStack].startToken
-					errorAtToken(
-						tok, nil, "Parser", "Syntax error: Could not find matching bracket before EOF. (Preprocessor line starts %s)",
-						getRelativeLocationText(ppEntryTok, tok)
-					)
-				end
-				if isDual then
-					outputFinalDualValueStatement(metaLineIndexStart, tokenIndex-1)
-				end
-				return
-			end
-
-			-- End of meta-line.
-			local tokType = tok.type
-			if
-				not depthStack[1] and (
-					(tokType == "whitespace" and tok.value:find("\n", 1, true)) or
-					(tokType == "comment"    and not tok.long)
-				)
-			then
-				if tokType == "comment" then
-					tableInsert(metaParts, tok.representation)
-				else
-					tableInsert(metaParts, "\n")
-				end
-
-				if isDual then
-					outputFinalDualValueStatement(metaLineIndexStart, tokenIndex-1)
-				end
-
-				-- Fix whitespace after the line.
-				local tokNext = tokens[tokenIndex]
-				if isDual or isTokenAndNotNil(tokNext, "pp_entry") then
-					-- void
-
-				elseif tokType == "whitespace" then
-					local tokExtra          = copyTable(tok)
-					tokExtra.value          = tok.value:gsub("^[^\n]+", "")
-					tokExtra.representation = tokExtra.value
-					tokExtra.position       = tokExtra.position+#tok.value-#tokExtra.value
-					tableInsert(plainOutputTokens, tokExtra)
-
-				elseif tokType == "comment" and not tok.long then
-					local tokExtra = newTokenAt({type="whitespace", representation="\n", value="\n"}, tok)
-					tableInsert(plainOutputTokens, tokExtra)
-				end
-
-				return
-
-			-- Nested metaprogram (not supported).
-			elseif tokType == "pp_entry" then
-				errorAtToken(tok, nil, "Parser", "Preprocessor token inside metaprogram (starting %s).", getRelativeLocationText(ppEntryTok, tok))
-
-			-- Continuation of meta-line.
-			else
-				tableInsert(metaParts, tok.representation)
-
-				if isToken(tok, "punctuation", "(") then
-					tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]=")"})
-				elseif isToken(tok, "punctuation", "[") then
-					tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="]"})
-				elseif isToken(tok, "punctuation", "{") then
-					tableInsert(depthStack, {startToken=tok, [1]="punctuation", [2]="}"})
-
-				elseif
-					isToken(tok, "punctuation", ")") or
-					isToken(tok, "punctuation", "]") or
-					isToken(tok, "punctuation", "}")
-				then
-					if not depthStack[1] then
-						errorAtToken(tok, nil, "Parser", "Unexpected '%s'.", tok.value)
-					elseif not isToken(tok, unpack(depthStack[#depthStack])) then
-						local startTok = depthStack[#depthStack].startToken
-						errorAtToken(
-							tok, nil, "Parser", "Expected '%s' (to close '%s' %s) but got '%s'. (Preprocessor line starts %s)",
-							depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value, getRelativeLocationText(ppEntryTok, tok)
-						)
-					end
-					tableRemove(depthStack)
-				end
-			end
-
-			tokenIndex = tokenIndex + 1
-		end
-	end
-
-	while true do
-		local tok = tokens[tokenIndex]
-		if not tok then  break  end
-
-		--
-		-- Normal code.
-		--
-		if tok.type ~= "pp_entry" then
-			tableInsert(plainOutputTokens, tok)
-
-		--
-		-- Metaprogram, preprocessor block:
-		-- !( function sum(a, b) return a+b; end )
-		-- local text = !("Hello, mr. "..getName())
-		-- _G.!!("myRandomGlobal"..math.random(5)) = 99
-		--
-		elseif isTokenAndNotNil(tokens[tokenIndex+1], "punctuation", "(") then
-			tokenIndex = tokenIndex + 2 -- '!(' or '!!('
-			flushPlainOutputTokens()
-			processMetaBlock(tok.double, tok)
-
-		--
-		-- Metaprogram, preprocessor line:
-		-- !for i = 1, 3 do
-		--     print("Marco? Polo!")
-		-- !end
-		--
-		-- Metaprogram, preprocessor line, extended:
-		-- !newClass{
-		--     name  = "Entity",
-		--     props = {x=0, y=0},
-		-- }
-		--
-		-- Metaprogram, dual code:
-		-- !!local foo = "A"
-		-- local bar = foo..!(foo)
-		--
-		else
-			tokenIndex = tokenIndex + 1 -- '!' or '!!'
-			flushPlainOutputTokens()
-			processMetaLine(tok.double, tok)
-		end
-
-		tokenIndex = tokenIndex + 1
-	end
-
-	flushPlainOutputTokens()
-
-	-- Run metaprogram.
-	--==============================================================
-
-	local luaMeta = table.concat(metaParts)
+	local luaMeta = generateMetaprogram(params, tokens)
 	--[[ DEBUG :PrintCode
 	print("=META===============================")
 	print(luaMeta)
 	print("====================================")
 	--]]
+
+	-- Run metaprogram.
+	--==============================================================
 
 	current_meta_pathForErrorMessages = params.pathMeta or "<meta>"
 	current_meta_output               = {}
@@ -3511,8 +3545,6 @@ local function _processFileOrString(params, isFile)
 	end
 end
 
-
-
 local function processFileOrString(params, isFile)
 	local returnValues = nil
 
@@ -3563,8 +3595,6 @@ local function processFileOrString(params, isFile)
 		return nil, cleanError(xpcallErr or "Unknown processing error.")
 	end
 end
-
-
 
 local function processFile(params)
 	local returnValues = pack(processFileOrString(params, true))
