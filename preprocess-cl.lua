@@ -10,7 +10,7 @@ exec lua "$0" "$@"
 --=  Requires preprocess.lua to be in the same folder!
 --=
 --=  License: MIT (see the bottom of this file)
---=  Website: http://luapreprocess.refreezed.com/
+--=  Website: http://refreezed.com/luapreprocess/
 --=
 --=  Tested with Lua 5.1, 5.2, 5.3 and 5.4.
 --=

@@ -21,7 +21,7 @@ A separate [command line program](preprocess-cl.lua) is available too.
 - [Usage](#usage)
 	- [Library](#preprocess-files-using-the-library)
 	- [Command Line](#preprocess-files-from-the-command-line)
-- [Documentation](http://luapreprocess.refreezed.com/docs/)
+- [Documentation](http://refreezed.com/luapreprocess/docs/)
 - [Help](#help)
 
 
@@ -138,7 +138,7 @@ end
 print("Lines of code processed: "..info.lineCount)
 ```
 
-See the [website](http://luapreprocess.refreezed.com/docs/)
+See the [website](http://refreezed.com/luapreprocess/docs/)
 or the top of [preprocess.lua](preprocess.lua) for documentation.
 
 
@@ -162,7 +162,7 @@ lua preprocess-cl.lua --outputpaths [options] inputpath1 outputpath1 [inputpath2
 
 If a filepath is, for example, `C:/MyApp/app.lua2p` then LuaPreprocess will write the processed file to `C:/MyApp/app.lua`.
 
-See the [website](http://luapreprocess.refreezed.com/docs/command-line/),
+See the [website](http://refreezed.com/luapreprocess/docs/command-line/),
 or the top of [preprocess-cl.lua](preprocess-cl.lua)
 and [preprocess.lua](preprocess.lua), for the options and more documentation.
 
@@ -170,7 +170,7 @@ and [preprocess.lua](preprocess.lua), for the options and more documentation.
 
 ## Documentation
 
-- [Website](http://luapreprocess.refreezed.com/docs/)
+- [Website](http://refreezed.com/luapreprocess/docs/)
 - Library: See the top of [preprocess.lua](preprocess.lua)
 - Command line: See the top of [preprocess-cl.lua](preprocess-cl.lua)
 
@@ -179,10 +179,10 @@ and [preprocess.lua](preprocess.lua), for the options and more documentation.
 ## Help
 
 Got a question?
-If the [documentation](http://luapreprocess.refreezed.com/docs/) doesn't have the answer,
+If the [documentation](http://refreezed.com/luapreprocess/docs/) doesn't have the answer,
 look if someone has asked the question in the [issue tracker](https://github.com/ReFreezed/LuaPreprocess/issues?q=is%3Aissue),
 or [create a new issue](https://github.com/ReFreezed/LuaPreprocess/issues/new).
 
-Also check out the online [syntax highlighter](http://luapreprocess.refreezed.com/highlight/) tool to help visualize errors in code.
+Also check out the online [syntax highlighter](http://refreezed.com/luapreprocess/highlight/) tool to help visualize errors in code.
 
 

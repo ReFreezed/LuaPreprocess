@@ -4,8 +4,8 @@
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
---=  Website: http://luapreprocess.refreezed.com/
---=  Documentation: http://luapreprocess.refreezed.com/docs/
+--=  Website: http://refreezed.com/luapreprocess/
+--=  Documentation: http://refreezed.com/luapreprocess/docs/
 --=
 --=  Tested with Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT.
 --=
@@ -68,7 +68,7 @@
 	local font = !!(isDeveloper and "loadDevFont()" or "loadUserFont()")
 
 	-- See the full documentation for additional features (like macros):
-	-- http://luapreprocess.refreezed.com/docs/extra-functionality/
+	-- http://refreezed.com/luapreprocess/docs/extra-functionality/
 
 ----------------------------------------------------------------
 
@@ -125,7 +125,7 @@
 	!func()
 
 	-- For the full documentation, see:
-	-- http://luapreprocess.refreezed.com/docs/
+	-- http://refreezed.com/luapreprocess/docs/
 
 --============================================================]]
 
