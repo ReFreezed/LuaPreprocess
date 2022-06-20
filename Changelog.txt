@@ -1,6 +1,15 @@
 Changelog
 LuaPreprocess
 
+v1.19 (2022-06-20)
+Library:
+- All uses of '!' now work in macros.
+- Added functions: getIndentation(), getCurrentIndentationInOutput(), getOutputSoFarOnLine(), writeFile().
+- Added function readFile() as alias for getFileContents(). (The latter is now deprecated.)
+- Added environment argument to evaluate().
+- pp.metaEnvironment is now only a shallow copy of _G (i.e. 'pp.metaEnvironment.io == _G.io' etc.).
+- LuaJIT: Added support for binary numerals (i.e. 0b110010).
+
 v1.18 (2022-03-19)
 Library:
 - Added functions: loadResource(), evaluate(), pairsSorted(), sortNatural() and compareNatural().
