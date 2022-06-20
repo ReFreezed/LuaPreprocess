@@ -11,6 +11,7 @@ local results = {}
 local function doTest(description, f, ...)
 	print("Running test: "..description)
 
+	-- f(...) -- DEBUG
 	local ok, err = pcall(f, ...)
 	if not ok then  print("Error: "..tostring(err))  end
 
@@ -314,24 +315,26 @@ doTest("Macros", function()
 	assertCodeOutput(luaOut, [[v = woof_woof_woof_woof_woof_woof_woof_woof]])
 
 	-- Code blocks in macros.
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(  1 ) )                ]]}), [[n = 1]]            )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1") )                ]]}), [[n = 1]]            )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(  1 ) }                ]]}), [[n = { 1 }]]        )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1") }                ]]}), [[n = { 1 }]]        )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(  1 ) + 2 )            ]]}), [[n = 1 + 2]]        )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1") + 2 )            ]]}), [[n = 1 + 2]]        )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(  1 ) + 2 }            ]]}), [[n = { 1 + 2 }]]    )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1") + 2 }            ]]}), [[n = { 1 + 2 }]]    )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !(  2 ) )            ]]}), [[n = 1 + 2]]        )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !!("2") )            ]]}), [[n = 1 + 2]]        )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !(  2 ) }            ]]}), [[n = { 1 + 2 }]]    )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !!("2") }            ]]}), [[n = { 1 + 2 }]]    )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !(  2 ) + 3 )        ]]}), [[n = 1 + 2 + 3]]    )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !!("2") + 3 )        ]]}), [[n = 1 + 2 + 3]]    )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !(  2 ) + 3 }        ]]}), [[n = { 1 + 2 + 3 }]])
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !!("2") + 3 }        ]]}), [[n = { 1 + 2 + 3 }]])
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1")!!("+")!!("2") )  ]]}), [[n = 1+2]]          )
-	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1")!!("+")!!("2") }  ]]}), [[n = { 1+2 }]]      )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(  1 ) )                 ]]}), [[n = 1]]            )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1") )                 ]]}), [[n = 1]]            )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(  1 ) }                 ]]}), [[n = { 1 }]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1") }                 ]]}), [[n = { 1 }]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(  1 ) + 2 )             ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1") + 2 )             ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(  1 ) + 2 }             ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1") + 2 }             ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !(  2 ) )             ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !!("2") )             ]]}), [[n = 1 + 2]]        )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !(  2 ) }             ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !!("2") }             ]]}), [[n = { 1 + 2 }]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !(  2 ) + 3 )         ]]}), [[n = 1 + 2 + 3]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( 1 + !!("2") + 3 )         ]]}), [[n = 1 + 2 + 3]]    )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !(  2 ) + 3 }         ]]}), [[n = { 1 + 2 + 3 }]])
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ 1 + !!("2") + 3 }         ]]}), [[n = { 1 + 2 + 3 }]])
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1")!!("+")!!("2") )   ]]}), [[n = 1+2]]          )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1")!!("+")!!("2") }   ]]}), [[n = { 1+2 }]]      )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(do outputLua"1" end) )  ]]}), [[n = 1]]            )
+	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(do outputLua"1" end) }  ]]}), [[n = { 1 }]]        )
 
 	-- Invalid code in arguments (which is ok).
 	local luaOut = assert(pp.processString{ code=[[
@@ -362,14 +365,6 @@ doTest("Macros", function()
 	-- Invalid: Bad macro arguments format.
 	assert(not pp.processString{ code=[[ @insert type[]   ]]})
 	assert(not pp.processString{ code=[[ @insert type + 1 ]]})
-
-	-- Invalid: Non-expression code block in macro.
-	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!(do end))  ]]})
-	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO{!(do end)}  ]]})
-	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!(      ))  ]]})
-	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO{!(      )}  ]]})
-	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!!(     ))  ]]})
-	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO{!!(     )}  ]]})
 
 	-- Invalid: Invalid value from code block in macro.
 	assert(not pp.processString{ code=[[  !(function ECHO(v) return v end)  v = @@ECHO(!!(1))  ]]})

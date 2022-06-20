@@ -73,10 +73,10 @@ print(string.format('We are at %s:%d!', "tests/quickTest.lua2p", 95))
 local ok = 1==1
 
 if not (ok) then error("Oh "..tonumber("7",10).." noes!") end
--- @insert ASSERT ( 1 1 ) -- Syntax error!
--- @insert ASSERT ( ok , ) -- Syntax error!
--- @insert ASSERT ( , ok ) -- Syntax error!
--- @insert ASSERT ( --[[]] , ok ) -- Syntax error!
+-- @insert MY_ASSERT ( 1 1 ) -- Syntax error! (runtime)
+-- @insert MY_ASSERT ( ok , ) -- Syntax error!
+-- @insert MY_ASSERT ( , ok ) -- Syntax error!
+-- @insert MY_ASSERT ( --[[]] , ok ) -- Syntax error!
 
 local s = "foo"
 local t = { 496, b=true } -- @@ means the same as @insert.
@@ -97,6 +97,7 @@ local b = 2
 local c = { 1 + 2 + 3 }
 local d = {1+2}
 local e = 1 + 2
+local f = 1 + 2, 8*50-9
 
 local n = 58
 
@@ -121,7 +122,7 @@ print(string.format("%s number %d", "foo", 5))
 
 
 
--- Symbols
+-- Symbols.
 
 local rand = math.random()
 
@@ -149,3 +150,5 @@ local HUGE_NEGATIVE = (-1/0)
 local NAN           = (0/0)
 
 print("The end.")
+
+
