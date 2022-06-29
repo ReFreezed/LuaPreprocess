@@ -3,4 +3,7 @@ CD /D "%~dp0.."
 
 IF NOT EXIST local  MD local
 
-lua tests/suite.lua
+SET _lua=%1
+IF [%_lua%]==[]  SET _lua=lua
+
+%_lua% tests/suite.lua

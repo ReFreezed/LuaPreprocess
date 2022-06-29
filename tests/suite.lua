@@ -11,11 +11,15 @@ local results = {}
 local function doTest(description, f, ...)
 	print("Running test: "..description)
 
-	-- f(...) -- DEBUG
 	local ok, err = pcall(f, ...)
 	if not ok then  print("Error: "..tostring(err))  end
 
 	table.insert(results, {description=description, ok=ok})
+end
+local function doTestUnprotected(description, f, ...)
+	print("Running test: "..description)
+	f(...)
+	table.insert(results, {description=description, ok=true})
 end
 local function addLabel(label)
 	table.insert(results, {label=label})
@@ -158,6 +162,9 @@ doTest("Dual code", function()
 		!!local n, s = 5^5, "foo".."bar";
 	]]})
 	assertCodeOutput(luaOut, [[local n, s = 3125, "foobar";]])
+
+	-- Invalid: Duplicate names.
+	assert(not pp.processString{ code=[[ !!x, y, x = 0 ]]})
 end)
 
 doTest("Expression or not?", function()
@@ -314,7 +321,7 @@ doTest("Macros", function()
 	]]})
 	assertCodeOutput(luaOut, [[v = woof_woof_woof_woof_woof_woof_woof_woof]])
 
-	-- Code blocks in macros.
+	-- Metaprogram code in macros.
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(  1 ) )                 ]]}), [[n = 1]]            )
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !!("1") )                 ]]}), [[n = 1]]            )
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(  1 ) }                 ]]}), [[n = { 1 }]]        )
@@ -335,6 +342,24 @@ doTest("Macros", function()
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !!("1")!!("+")!!("2") }   ]]}), [[n = { 1+2 }]]      )
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO( !(do outputLua"1" end) )  ]]}), [[n = 1]]            )
 	assertCodeOutput(assert(pp.processString{ code=[[  !(function ECHO(v) return v end)  n = @@ECHO{ !(do outputLua"1" end) }  ]]}), [[n = { 1 }]]        )
+
+	local luaOut = assert(pp.processString{ code=[[
+		!function ECHO(v)  return v  end
+		n = @@ECHO(
+			!outputLua("1")
+		)
+	]]})
+	assertCodeOutput(luaOut, [[n = 1]])
+
+	-- Prefixes/suffixes.
+	assert(pp.processString{ macroPrefix="MACRO_", code=[[
+		!local function MACRO_FOO() return "" end
+		@@FOO()
+	]]})
+	assert(pp.processString{ macroSuffix="_MACRO", code=[[
+		!local function FOO_MACRO() return "" end
+		@@FOO()
+	]]})
 
 	-- Invalid code in arguments (which is ok).
 	local luaOut = assert(pp.processString{ code=[[
@@ -591,10 +616,13 @@ doTest("Resources and evaluation", function()
 		onInsert = function(name)  return name  end,
 	})
 
-	assert(pp.processString{
-		code     = [[ !x = 8 ; assert(evaluate("2^x") == 2^x) ]],
-		onInsert = function(name)  return name  end,
-	})
+	_G.   x = 8 ; assert(pp.evaluate("2^x"       ) == 2^x) ; _G.x = nil
+	local x = 8 ; assert(pp.evaluate("2^x", {x=x}) == 2^x)
+	assert(not pp.evaluate("2^x")) -- (Global) x should be nil.
+
+	if jit then
+		assert(assert(pp.evaluate"0b101") == 5)
+	end
 end)
 
 doTest("Indentation", function()
@@ -602,6 +630,9 @@ doTest("Indentation", function()
 
 	assert(pp.getIndentation(" \t foo") == " \t ")
 	assert(pp.getIndentation(" \n foo") == " ")
+
+	assertCodeOutput(assert(pp.processString{ code=    "\t   \tindent = !(getCurrentIndentationInOutput(4))"    }), [[indent = 8]])
+	assertCodeOutput(assert(pp.processString{ code="\n\n\t   \tindent = !(getCurrentIndentationInOutput(4))\n\n"}), [[indent = 8]])
 
 	-- Spaces.
 	local indent, expect = pp.getIndentation(""        , 4), 0  ; if indent ~= expect then  error(expect.." "..indent)  end
@@ -626,6 +657,9 @@ end)
 doTest("Misc.", function()
 	local pp = ppChunk()
 
+	assert(pp.metaEnvironment.table == table)
+
+	-- Natural comparisons.
 	assert(                 ("foo9" < "foo10") == false)
 	assert(pp.compareNatural("foo9",  "foo10") == true )
 
@@ -642,6 +676,11 @@ doTest("Misc.", function()
 			assert(keys[order] == k)
 		end
 	end
+
+	-- Current output.
+	assertCodeOutput(assert(pp.processString{ code="x = 1 ; y = !(getOutputSoFar())"                                               }), 'x = 1 ; y = "x = 1 ; y = "')
+	assertCodeOutput(assert(pp.processString{ code="x = !(getOutputSoFarOnLine        ())\n\ty = !(getOutputSoFarOnLine        ())"}), 'x = "x = "\n\ty = "\\ty = "')
+	assertCodeOutput(assert(pp.processString{ code="x = !(getCurrentLineNumberInOutput())\n\ty = !(getCurrentLineNumberInOutput())"}), "x = 1\n\ty = 2")
 end)
 
 

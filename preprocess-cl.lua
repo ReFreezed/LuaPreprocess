@@ -536,7 +536,7 @@ for i, pathIn in ipairs(pathsIn) do
 			-- it's better if the user can choose whether to handle a message or not!
 			--
 			if lua == nil and type(messageHandler) == "function" then
-				return assert(pp.getFileContents(name))
+				return assert(pp.readFile(name))
 			end
 
 			return lua

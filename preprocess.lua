@@ -1136,7 +1136,7 @@ end
 -- value = evaluate( expression [, environment=getfenv() ] )
 -- Returns nil and a message on error.
 local function evaluate(expression, env)
-	local chunk, err = loadLuaString("return "..expression, "@", (env or getfenv(2)))
+	local chunk, err = loadLuaString("return "..expression, "@<evaluate>", (env or getfenv(2)))
 	if not chunk then
 		return nil, F("Invalid expression '%s'. (%s)", expression, (err:gsub("^:%d+: ", "")))
 	end
@@ -1145,7 +1145,10 @@ local function evaluate(expression, env)
 		return nil, F("Ambiguous expression '%s'. (Comma-separated list?)", expression)
 	end
 
-	return (chunk())
+	local ok, valueOrErr = pcall(chunk)
+	if not ok then  return nil, valueOrErr  end
+
+	return valueOrErr -- May be nil or false!
 end
 
 
@@ -2658,6 +2661,8 @@ local function astParseMetaLine(tokens)
 			tokNext, iNext = getNextUsableToken(tokens, tokens.nextI, nil, 1)
 		end
 
+		local usedNames = {}
+
 		while true do
 			if not isTokenAndNotNil(tokNext, "identifier") then
 				local tok = tokNext or tokens[#tokens]
@@ -2666,10 +2671,18 @@ local function astParseMetaLine(tokens)
 					(astOutNode.names[1] and "" or "'local' or "),
 					getRelativeLocationText(ppEntryTok, tok)
 				)
+			elseif usedNames[tokNext.value] then
+				errorAtToken(
+					tokNext, nil, "Parser/DualCodeLine", "Duplicate name '%s' in %s. (Preprocessor line starts %s)",
+					tokNext.value,
+					(astOutNode.isDeclaration and "declaration" or "assignment"),
+					getRelativeLocationText(ppEntryTok, tokNext)
+				)
 			end
-			tableInsert(astOutNode.names, tokNext.value) -- @Robustness: Check for duplicate names.
-			tokens.nextI   = iNext + 1 -- after the identifier
-			tokNext, iNext = getNextUsableToken(tokens, tokens.nextI, nil, 1)
+			tableInsert(astOutNode.names, tokNext.value)
+			usedNames[tokNext.value] = tokNext
+			tokens.nextI             = iNext + 1 -- after the identifier
+			tokNext, iNext           = getNextUsableToken(tokens, tokens.nextI, nil, 1)
 
 			if not isTokenAndNotNil(tokNext, "punctuation", ",") then  break  end
 			tokens.nextI   = iNext + 1 -- after ','
@@ -2911,7 +2924,7 @@ local function astParseMacro(params, tokens)
 	-- @insert identifier ( argument1, ... )
 	elseif isTokenAndNotNil(tokNext, "punctuation", "(") then
 		-- Apply the same 'ambiguous syntax' rule as Lua. (Will comments mess this check up?)
-		if isTokenAndNotNil(tokens[iNext-1], "whitespace") and tokens[iNext-1].value:find"\n" then
+		if isTokenAndNotNil(tokens[iNext-1], "whitespace") and tokens[iNext-1].value:find("\n", 1, true) then
 			errorAtToken(tokNext, nil, "Parser/Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
 		end
 

@@ -218,7 +218,7 @@ print("The end.")
 
 !(
 --[==[ Test token stuff.
-for i, token in ipairs(assert(tokenize(assert(getFileContents"tests/quickTestInclude.lua")))) do
+for i, token in ipairs(assert(tokenize(assert(readFile"tests/quickTestInclude.lua")))) do
 	print(i, token.type, "", (token.representation:gsub("\n", "<NEWLINE>")))
 end
 
