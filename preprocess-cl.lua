@@ -420,14 +420,14 @@ local function sendMessage(message, ...)
 
 	elseif type(messageHandler) == "function" then
 		local returnValues = pp.pack(messageHandler(message, ...))
-		return unpack(returnValues, 1, returnValues.n)
+		return pp.unpack(returnValues, 1, returnValues.n)
 
 	elseif type(messageHandler) == "table" then
 		local _messageHandler = messageHandler[message]
 		if not _messageHandler then  return  end
 
 		local returnValues = pp.pack(_messageHandler(...))
-		return unpack(returnValues, 1, returnValues.n)
+		return pp.unpack(returnValues, 1, returnValues.n)
 
 	else
 		assert(false)

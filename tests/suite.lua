@@ -5,8 +5,17 @@
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
-local ppChunk = assert(loadfile"preprocess.lua")
-local results = {}
+local ppChunk    = assert(loadfile"preprocess.lua")
+local results    = {}
+local luaExe     = "lua"
+local enableInts = _VERSION >= "Lua 5.3"
+
+for i = -1, -1/0, -1 do
+	if not arg[i] then  break  end
+	luaExe = arg[i]
+end
+
+
 
 local function doTest(description, f, ...)
 	print("Running test: "..description)
@@ -53,9 +62,27 @@ local function assertCodeOutput(codeOut, codeExpected, message)
 		error(message or "Unexpected output: "..codeOut, 2)
 	end
 end
-local function assertCmd(cmd)
-	local code = os.execute(cmd)
-	if code ~= 0 then  error("Command failed: "..cmd, 2)  end
+
+local function runCommandRequired(program, argsStr)
+	local cmd = (
+		program:find(" ", 1, true)
+		and '""'..program..'" '..argsStr..'"'
+		or  program..' '..argsStr
+	)
+
+	print("Running command: "..cmd)
+
+	if jit or _VERSION >= "Lua 5.2" then
+		local ok, termination, code = os.execute(cmd)
+		if not (ok and termination == "exit" and code == 0) then
+			error("Command failed (termination="..tostring(termination)..", code="..tostring(code).."): "..cmd, 2)
+		end
+	else
+		local code = os.execute(cmd)
+		if code ~= 0 then
+			error("Command failed (code="..code.."): "..cmd, 2)
+		end
+	end
 end
 
 --==============================================================
@@ -145,7 +172,7 @@ doTest("Parsing extended preprocessor line", function()
 	]]
 
 	local luaOut = assert(pp.processString{ code=luaIn })
-	assertCodeOutput(luaOut, [[local z = 137]])
+	assertCodeOutput(luaOut, enableInts and [[local z = 137.0]] or [[local z = 137]])
 end)
 
 doTest("Dual code", function()
@@ -161,7 +188,7 @@ doTest("Dual code", function()
 	local luaOut = assert(pp.processString{ code=[[
 		!!local n, s = 5^5, "foo".."bar";
 	]]})
-	assertCodeOutput(luaOut, [[local n, s = 3125, "foobar";]])
+	assertCodeOutput(luaOut, enableInts and [[local n, s = 3125.0, "foobar";]] or [[local n, s = 3125, "foobar";]])
 
 	-- Invalid: Duplicate names.
 	assert(not pp.processString{ code=[[ !!x, y, x = 0 ]]})
@@ -691,7 +718,7 @@ doTest("Simple processing of single file", function()
 	assert(writeFile("local/generatedTest.lua2p", [[
 		!outputLua("math.floor(1.5)")
 	]]))
-	assertCmd([[lua ./preprocess-cl.lua local/generatedTest.lua2p]])
+	runCommandRequired(luaExe, [[preprocess-cl.lua local/generatedTest.lua2p]])
 
 	local luaOut = assert(readFile("local/generatedTest.lua"))
 	assertCodeOutput(luaOut, [[math.floor(1.5)]])
@@ -701,7 +728,7 @@ doTest("Send data", function()
 	assert(writeFile("local/generatedTest.lua2p", [[
 		print(!(dataFromCommandLine))
 	]]))
-	assertCmd([[lua ./preprocess-cl.lua --outputpaths --data="Hello, world!" local/generatedTest.lua2p local/generatedTest.lua]])
+	runCommandRequired(luaExe, [[preprocess-cl.lua --outputpaths --data="Hello, world!" local/generatedTest.lua2p local/generatedTest.lua]])
 
 	local luaOut = assert(readFile("local/generatedTest.lua"))
 	assertCodeOutput(luaOut, [[print("Hello, world!")]])
@@ -720,12 +747,12 @@ doTest("Handler + multiple files", function()
 	assert(writeFile("local/generatedTest1.lua2p", "!!local x = one+2*3\n"))
 	assert(writeFile("local/generatedTest2.lua2p", "!!local y = one+2^10\n"))
 
-	assertCmd([[lua ./preprocess-cl.lua --handler=local/generatedHandler.lua local/generatedTest1.lua2p local/generatedTest2.lua2p]])
+	runCommandRequired(luaExe, [[preprocess-cl.lua --handler=local/generatedHandler.lua local/generatedTest1.lua2p local/generatedTest2.lua2p]])
 
 	local luaOut = assert(readFile("local/generatedTest1.lua"))
 	assertCodeOutput(luaOut, [[print("foo");local x = 7]])
 	local luaOut = assert(readFile("local/generatedTest2.lua"))
-	assertCodeOutput(luaOut, [[print("foo");local y = 1025]])
+	assertCodeOutput(luaOut, enableInts and [[print("foo");local y = 1025.0]] or [[print("foo");local y = 1025]])
 end)
 
 
