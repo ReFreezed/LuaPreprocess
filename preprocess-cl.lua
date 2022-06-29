@@ -110,6 +110,9 @@ exec lua "$0" "$@"
 			Only print errors to the console. (This flag is automatically
 			enabled if an output path is stdout.)
 
+		--version
+			Print the version of LuaPreprocess and exit.
+
 		--debug
 			Enable some preprocessing debug features. Useful if you want
 			to inspect the generated metaprogram (*.meta.lua). (This also
@@ -359,6 +362,14 @@ for _, arg in ipairs(args) do
 
 	elseif arg:find"^%-%-loglevel=" then
 		maxLogLevel = arg:gsub("^.-=", "")
+
+	elseif arg == "--version" then
+		print(pp.VERSION)
+		os.exit()
+
+	-- elseif arg == "/?" or arg:find"^%-%-?help" or arg:lower() == "/help" then
+	-- 	-- @Incomplete!
+	-- 	os.exit()
 
 	else
 		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
