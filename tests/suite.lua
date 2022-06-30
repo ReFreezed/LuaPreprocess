@@ -715,27 +715,27 @@ end)
 addLabel("Command line")
 
 doTest("Simple processing of single file", function()
-	assert(writeFile("local/generatedTest.lua2p", [[
+	assert(writeFile("temp/generatedTest.lua2p", [[
 		!outputLua("math.floor(1.5)")
 	]]))
-	runCommandRequired(luaExe, [[preprocess-cl.lua local/generatedTest.lua2p]])
+	runCommandRequired(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
 
-	local luaOut = assert(readFile("local/generatedTest.lua"))
+	local luaOut = assert(readFile("temp/generatedTest.lua"))
 	assertCodeOutput(luaOut, [[math.floor(1.5)]])
 end)
 
 doTest("Send data", function()
-	assert(writeFile("local/generatedTest.lua2p", [[
+	assert(writeFile("temp/generatedTest.lua2p", [[
 		print(!(dataFromCommandLine))
 	]]))
-	runCommandRequired(luaExe, [[preprocess-cl.lua --outputpaths --data="Hello, world!" local/generatedTest.lua2p local/generatedTest.lua]])
+	runCommandRequired(luaExe, [[preprocess-cl.lua --outputpaths --data="Hello, world!" temp/generatedTest.lua2p temp/generatedTest.lua]])
 
-	local luaOut = assert(readFile("local/generatedTest.lua"))
+	local luaOut = assert(readFile("temp/generatedTest.lua"))
 	assertCodeOutput(luaOut, [[print("Hello, world!")]])
 end)
 
 doTest("Handler + multiple files", function()
-	assert(writeFile("local/generatedHandler.lua", [[
+	assert(writeFile("temp/generatedHandler.lua", [[
 		_G.one = 1
 		return {
 			aftermeta = function(path, luaString)
@@ -744,14 +744,14 @@ doTest("Handler + multiple files", function()
 			end,
 		}
 	]]))
-	assert(writeFile("local/generatedTest1.lua2p", "!!local x = one+2*3\n"))
-	assert(writeFile("local/generatedTest2.lua2p", "!!local y = one+2^10\n"))
+	assert(writeFile("temp/generatedTest1.lua2p", "!!local x = one+2*3\n"))
+	assert(writeFile("temp/generatedTest2.lua2p", "!!local y = one+2^10\n"))
 
-	runCommandRequired(luaExe, [[preprocess-cl.lua --handler=local/generatedHandler.lua local/generatedTest1.lua2p local/generatedTest2.lua2p]])
+	runCommandRequired(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua temp/generatedTest1.lua2p temp/generatedTest2.lua2p]])
 
-	local luaOut = assert(readFile("local/generatedTest1.lua"))
+	local luaOut = assert(readFile("temp/generatedTest1.lua"))
 	assertCodeOutput(luaOut, [[print("foo");local x = 7]])
-	local luaOut = assert(readFile("local/generatedTest2.lua"))
+	local luaOut = assert(readFile("temp/generatedTest2.lua"))
 	assertCodeOutput(luaOut, enableInts and [[print("foo");local y = 1025.0]] or [[print("foo");local y = 1025]])
 end)
 

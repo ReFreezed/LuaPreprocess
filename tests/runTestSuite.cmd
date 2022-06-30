@@ -1,9 +1,22 @@
 @ECHO OFF
-CD /D "%~dp0.."
+REM $ runTestSuite.cmd [luaExePath]
+REM Default value for luaExePath is "lua".
 
-IF NOT EXIST local  MD local
+SETLOCAL
 
+REM Prepare Lua command.
 SET _lua=%1
-IF [%_lua%]==[]  SET _lua=lua
+SET _luaExt=%~1
+SET _luaExt=%_luaExt:~-4%
+IF [%_lua%]==[] ( SET _lua=lua & SET "_luaExt=" )
+REM Use CALL if the Lua command is a Batch file, because Windows is annoying.
+IF /I "%_luaExt%"==".cmd"  SET _lua=CALL %_lua%
+IF /I "%_luaExt%"==".bat"  SET _lua=CALL %_lua%
 
-%_lua% tests/suite.lua
+REM Prepare folders.
+CD /D "%~dp0.."
+IF NOT EXIST temp  MD temp
+
+
+
+%_lua% tests/suite.lua || EXIT /B 1
