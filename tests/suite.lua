@@ -856,6 +856,11 @@ doTest("Options", function()
 		removeFile("temp/generatedTest.meta.lua")
 		runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --meta]])
 		assert(fileExists("temp/generatedTest.meta.lua"))
+
+		writeFile("temp/generatedTest.lua2p", [[ !bad ]])
+		removeFile("temp/generatedTest.metafoo")
+		runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --meta=temp/generatedTest.metafoo]])
+		assert(fileExists("temp/generatedTest.metafoo"))
 	end
 
 	--nonil

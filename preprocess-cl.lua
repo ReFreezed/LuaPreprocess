@@ -73,7 +73,7 @@ exec lua "$0" "$@"
 		--macrosuffix=suffix
 			String to append to macro names.
 
-		--meta
+		--meta OR --meta=pathToSaveMetaprogramTo
 			Output the metaprogram to a temporary file (*.meta.lua). Useful if
 			an error happens when the metaprogram runs. This file is removed
 			if there's no error and --debug isn't enabled.
@@ -203,7 +203,7 @@ local hasOutputExtension   = false
 local hasOutputPaths       = false
 local isDebug              = false
 local outputExtension      = "lua"
-local outputMeta           = false
+local outputMeta           = false -- flag|path
 local processingInfoPath   = ""
 local silent               = false
 local validate             = true
@@ -310,7 +310,7 @@ for _, arg in ipairs(args) do
 
 	elseif arg == "--debug" then
 		isDebug    = true
-		outputMeta = true
+		outputMeta = outputMeta or true
 
 	elseif arg:find"^%-%-handler=" or arg:find"^%-h=" then
 		messageHandlerPath = arg:gsub("^.-=", "")
@@ -323,6 +323,8 @@ for _, arg in ipairs(args) do
 
 	elseif arg == "--meta" then
 		outputMeta = true
+	elseif arg:find"^%-%-meta=" then
+		outputMeta = arg:gsub("^.-=", "")
 
 	elseif arg == "--nonil" then
 		canOutputNil = false
@@ -516,7 +518,7 @@ for i, pathIn in ipairs(pathsIn) do
 	printfNoise("Processing '%s'...", pathIn)
 
 	local pathOut  = pathsOut[i]
-	local pathMeta = pathOut:gsub("%.%w+$", "")..".meta.lua"
+	local pathMeta = (type(outputMeta) == "string") and outputMeta or pathOut:gsub("%.%w+$", "")..".meta.lua"
 
 	if not outputMeta or pathOut == "-" then
 		pathMeta = nil
