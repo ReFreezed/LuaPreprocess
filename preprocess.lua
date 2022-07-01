@@ -432,36 +432,36 @@ local function parseStringlikeToken(s, ptr)
 	local valueEnd
 
 	local longEqualSigns = s:match("^%[(=*)%[", ptr)
-	local isLong = (longEqualSigns ~= nil)
+	local isLong         = longEqualSigns ~= nil
 
 	-- Single line.
 	if not isLong then
 		valueStart = ptr
 
-		local i1, i2 = s:find("\r?\n", ptr)
-		if not i1 then
+		local i = s:find("\n", ptr, true)
+		if not i then
 			reprEnd  = #s
 			valueEnd = #s
-			ptr      = reprEnd+1
+			ptr      = reprEnd + 1
 		else
-			reprEnd  = i2
-			valueEnd = i1-1
-			ptr      = reprEnd+1
+			reprEnd  = i
+			valueEnd = i - 1
+			ptr      = reprEnd + 1
 		end
 
 	-- Multiline.
 	else
-		ptr        = ptr+1+#longEqualSigns+1
+		ptr        = ptr + 1 + #longEqualSigns + 1
 		valueStart = ptr
 
-		local i1, i2 = s:find("%]"..longEqualSigns.."%]", ptr)
+		local i1, i2 = s:find("]"..longEqualSigns.."]", ptr, true)
 		if not i1 then
 			return nil, ERROR_UNFINISHED_STRINGLIKE
 		end
 
 		reprEnd  = i2
-		valueEnd = i1-1
-		ptr      = reprEnd+1
+		valueEnd = i1 - 1
+		ptr      = reprEnd + 1
 	end
 
 	local repr = s:sub(reprStart,  reprEnd)
@@ -484,6 +484,8 @@ local NUM_DEC          = ("^(        %d+  %.?                    )"):gsub(" +", 
 
 -- tokens = _tokenize( luaString, path, allowPreprocessorTokens, allowBacktickStrings, allowJitSyntax )
 local function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitSyntax)
+	s = s:gsub("\r", "") -- Normalize line breaks. (Assume the input is either "\n" or "\r\n".)
+
 	local tokens = {}
 	local ptr    = 1
 	local ln     = 1
@@ -2400,8 +2402,8 @@ local function doEarlyExpansions(tokensToExpand, stats)
 
 		-- Backtick string.
 		elseif isToken(tok, "string") and tok.representation:find"^`" then
-			local stringTok = tok
-			stringTok.representation = F("%q", stringTok.value)
+			local stringTok          = tok
+			stringTok.representation = toLua(stringTok.value)--F("%q", stringTok.value)
 
 			tableInsert(outTokens, stringTok)
 			tableRemove(tokenStack) -- the string
@@ -3290,7 +3292,7 @@ local function astNodeToMetaprogram(buffer, ast, ln, lnMeta, asMacroArgExpr)
 			tableInsert(buffer, ")")
 		end
 
-		-- Use trailing comma if the user does.
+		-- Use trailing semicolon if the user does.
 		for i = #ast.valueTokens, 1, -1 do
 			if isToken(ast.valueTokens[i], "punctuation", ";") then
 				if    current_parsingAndMeta_isDebug
@@ -3378,7 +3380,13 @@ local function _processFileOrString(params, isFile)
 
 	local specialFirstLine, rest = luaUnprocessed:match"^(#[^\r\n]*\r?\n?)(.*)$"
 	if specialFirstLine then
-		luaUnprocessed = rest
+		specialFirstLine = specialFirstLine:gsub("\r", "") -- Normalize line breaks. (Assume the input is either "\n" or "\r\n".)
+		luaUnprocessed   = rest
+	end
+
+	-- Ensure there's a newline at the end of the code, otherwise there will be problems down the line.
+	if not (luaUnprocessed == "" or luaUnprocessed:find"\n%s*$") then
+		luaUnprocessed = luaUnprocessed .. "\n"
 	end
 
 	local tokens = _tokenize(luaUnprocessed, virtualPathIn, true, params.backtickStrings, params.jitSyntax)
@@ -3509,7 +3517,7 @@ local function _processFileOrString(params, isFile)
 
 		if not chunk then
 			local ln, _err = err:match"^.-:(%d+): (.*)"
-			errorOnLine(pathOut, (tonumber(ln) or 0), nil, "%s", (_err or err))
+			errorOnLine(pathOut, (tonumber(ln) or 0), nil, "Output is invalid Lua. (%s)", (_err or err))
 		end
 	end
 

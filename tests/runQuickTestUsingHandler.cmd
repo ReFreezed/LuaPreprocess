@@ -19,7 +19,11 @@ IF NOT EXIST temp  MD temp
 
 
 
-%_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --handler=tests/quickTestHandler.lua tests/quickTest.lua2p || EXIT /B 1
-REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --handler=tests/quickTestHandler.lua --outputpaths tests/quickTest.lua2p temp/quickTest.output.lua || EXIT /B 1
+%_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --handler=tests/quickTestHandlerTable.lua tests/quickTest.lua2p || EXIT /B 1
+REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --handler=tests/quickTestHandlerTable.lua --outputpaths tests/quickTest.lua2p temp/quickTest.output.lua || EXIT /B 1
 
+%_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --handler=tests/quickTestHandlerFunction.lua tests/quickTest.lua2p || EXIT /B 1
+REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --handler=tests/quickTestHandlerFunction.lua --outputpaths tests/quickTest.lua2p temp/quickTest.output.lua || EXIT /B 1
+
+ECHO. & ECHO Running quickTest.lua...
 %_lua% -e"io.stdout:setvbuf'no' io.stderr:setvbuf'no'" tests/quickTest.lua || EXIT /B 1

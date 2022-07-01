@@ -11,8 +11,9 @@ exec lua "$0" "$@"
 --=
 --=  License: MIT (see the bottom of this file)
 --=  Website: http://refreezed.com/luapreprocess/
+--=  Documentation: http://refreezed.com/luapreprocess/docs/command-line/
 --=
---=  Tested with Lua 5.1, 5.2, 5.3 and 5.4.
+--=  Tested with Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT.
 --=
 --==============================================================
 
@@ -111,7 +112,7 @@ exec lua "$0" "$@"
 			enabled if an output path is stdout.)
 
 		--version
-			Print the version of LuaPreprocess and exit.
+			Print the version of LuaPreprocess to stdout and exit.
 
 		--debug
 			Enable some preprocessing debug features. Useful if you want
@@ -335,7 +336,7 @@ for _, arg in ipairs(args) do
 		if hasOutputExtension then
 			errorLine("Cannot specify both --outputpaths and --outputextension")
 		elseif pathsIn[1] then
-			errorLine(arg.." must appear before any path.")
+			errorLine(arg.." must appear before any input path.")
 		end
 		hasOutputPaths = true
 
@@ -364,7 +365,7 @@ for _, arg in ipairs(args) do
 		maxLogLevel = arg:gsub("^.-=", "")
 
 	elseif arg == "--version" then
-		print(pp.VERSION)
+		io.stdout:write(pp.VERSION)
 		os.exit()
 
 	-- elseif arg == "/?" or arg:find"^%-%-?help" or arg:lower() == "/help" then

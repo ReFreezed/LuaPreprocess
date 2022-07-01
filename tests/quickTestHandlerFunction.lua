@@ -3,6 +3,8 @@
 --=  Test message handler
 --=  for use with preprocess-cl.lua
 --=
+--=  Alternative #2: A single catch-all message handler.
+--=
 --============================================================]]
 
 --
@@ -26,28 +28,6 @@ end
 -- The module is expected to return one or multiple message handlers.
 --
 
--- [[ Alternative #1: Multiple specific message handlers.
-return {
-	beforemeta = function(path)
-		print("... Now processing "..path)
-	end,
-
-	aftermeta = function(path, luaString)
-		-- Remove comments (quick and dirty).
-		luaString = luaString
-			:gsub("%-%-%[%[.-%]%]", "") -- Multi-line.
-			:gsub("%-%-[^\n]*",     "") -- Single line.
-
-		return luaString
-	end,
-
-	filedone = function(path, outputPath)
-		print("... Done with "..path.." (writing to "..outputPath..")")
-	end,
-}
---]]
-
---[[ Alternative #2: A single catch-all message handler.
 return function(message, ...)
 	if message == "beforemeta" then
 		local path = ...
@@ -68,4 +48,3 @@ return function(message, ...)
 		print("... Done with "..path.." (writing to "..outputPath..")")
 	end
 end
---]]

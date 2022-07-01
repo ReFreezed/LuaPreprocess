@@ -1,5 +1,8 @@
 --==============================================================
---= Test suite for LuaPreprocess
+--=
+--=  Test suite for LuaPreprocess
+--=  Note: The command line program tests expect the OS to be Windows!
+--=
 --==============================================================
 
 io.stdout:setvbuf("no")
@@ -39,22 +42,25 @@ local function trim(s)
 end
 
 local function readFile(path)
-	local file, err = io.open(path, "rb")
-	if not file then  return nil, err  end
-
+	local file = assert(io.open(path, "rb"))
 	local data = file:read("*a")
 	file:close()
-
 	return data
 end
 local function writeFile(path, data)
-	local file, err = io.open(path, "wb")
-	if not file then  return false, err  end
-
+	local file = assert(io.open(path, "wb"))
 	file:write(data)
 	file:close()
-
+end
+local function fileExists(path)
+	local file = io.open(path, "rb")
+	if not file then  return false  end
+	file:close()
 	return true
+end
+local function removeFile(path)
+	if not fileExists(path) then  return  end
+	assert(os.remove(path))
 end
 
 local function assertCodeOutput(codeOut, codeExpected, message)
@@ -63,26 +69,46 @@ local function assertCodeOutput(codeOut, codeExpected, message)
 	end
 end
 
-local function runCommandRequired(program, argsStr)
-	local cmd = (
-		program:find(" ", 1, true)
-		and '""'..program..'" '..argsStr..'"'
-		or  program..' '..argsStr
-	)
+-- command = createCommand( program, argumentsString )
+local function createCommand(program, argsStr)
+	return program:find(" ", 1, true)
+	       and '""'..program..'" '..argsStr..'"'
+	       or  program..' '..argsStr
+end
 
+-- runCommand( command )
+-- runCommand( program, argumentsString )
+-- runCommandToFail( command )
+-- runCommandToFail( program, argumentsString )
+local function _runCommand(program, argsStr, expectSuccess)
+	local cmd = not argsStr and program or createCommand(program, argsStr)
 	print("Running command: "..cmd)
 
 	if jit or _VERSION >= "Lua 5.2" then
 		local ok, termination, code = os.execute(cmd)
-		if not (ok and termination == "exit" and code == 0) then
-			error("Command failed (termination="..tostring(termination)..", code="..tostring(code).."): "..cmd, 2)
-		end
+		if ((ok or false) and termination == "exit" and code == 0) == expectSuccess then  -- void
+		elseif expectSuccess then  error("Command failed (termination="..tostring(termination)..", code="..tostring(code).."): "..cmd, 2)
+		else                       error("Command succeeded unexpectedly: "..cmd, 2)  end
 	else
 		local code = os.execute(cmd)
-		if code ~= 0 then
-			error("Command failed (code="..code.."): "..cmd, 2)
-		end
+		if (code == 0) == expectSuccess then  -- void
+		elseif expectSuccess then  error("Command failed (code="..code.."): "..cmd, 2)
+		else                       error("Command succeeded unexpectedly: "..cmd, 2)  end
 	end
+end
+local function runCommand(program, argsStr)
+	_runCommand(program, argsStr, true)
+end
+local function runCommandToFail(program, argsStr)
+	_runCommand(program, argsStr, false)
+end
+
+local function requireNewTemp(moduleName)
+	local oldModule            = package.loaded[moduleName]
+	package.loaded[moduleName] = nil
+	local tempModule           = require(moduleName)
+	package.loaded[moduleName] = oldModule
+	return tempModule
 end
 
 --==============================================================
@@ -648,7 +674,9 @@ doTest("Resources and evaluation", function()
 	assert(not pp.evaluate("2^x")) -- (Global) x should be nil.
 
 	if jit then
-		assert(assert(pp.evaluate"0b101") == 5)
+		assert(         assert(pp.evaluate"0b101"   )  == 5)
+		assert(tonumber(assert(pp.evaluate"123ULL"  )) == 123)
+		assert(tonumber(assert(pp.evaluate"0x123ULL")) == 0x123)
 	end
 end)
 
@@ -715,27 +743,25 @@ end)
 addLabel("Command line")
 
 doTest("Simple processing of single file", function()
-	assert(writeFile("temp/generatedTest.lua2p", [[
+	writeFile("temp/generatedTest.lua2p", [[
 		!outputLua("math.floor(1.5)")
-	]]))
-	runCommandRequired(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
+	]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
 
-	local luaOut = assert(readFile("temp/generatedTest.lua"))
-	assertCodeOutput(luaOut, [[math.floor(1.5)]])
+	assertCodeOutput(readFile"temp/generatedTest.lua", [[math.floor(1.5)]])
 end)
 
 doTest("Send data", function()
-	assert(writeFile("temp/generatedTest.lua2p", [[
+	writeFile("temp/generatedTest.lua2p", [[
 		print(!(dataFromCommandLine))
-	]]))
-	runCommandRequired(luaExe, [[preprocess-cl.lua --outputpaths --data="Hello, world!" temp/generatedTest.lua2p temp/generatedTest.lua]])
+	]])
+	runCommand(luaExe, [[preprocess-cl.lua --outputpaths --data="Hello, world!" temp/generatedTest.lua2p temp/generatedTest.lua]])
 
-	local luaOut = assert(readFile("temp/generatedTest.lua"))
-	assertCodeOutput(luaOut, [[print("Hello, world!")]])
+	assertCodeOutput(readFile"temp/generatedTest.lua", [[print("Hello, world!")]])
 end)
 
 doTest("Handler + multiple files", function()
-	assert(writeFile("temp/generatedHandler.lua", [[
+	writeFile("temp/generatedHandler.lua", [[
 		_G.one = 1
 		return {
 			aftermeta = function(path, luaString)
@@ -743,16 +769,157 @@ doTest("Handler + multiple files", function()
 				return 'print("foo");'..luaString -- Prepend some code.
 			end,
 		}
-	]]))
-	assert(writeFile("temp/generatedTest1.lua2p", "!!local x = one+2*3\n"))
-	assert(writeFile("temp/generatedTest2.lua2p", "!!local y = one+2^10\n"))
+	]])
+	writeFile("temp/generatedTest1.lua2p", [[!!local x = one+2*3]])
+	writeFile("temp/generatedTest2.lua2p", [[!!local y = one+2^10]])
 
-	runCommandRequired(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua temp/generatedTest1.lua2p temp/generatedTest2.lua2p]])
+	runCommand(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua temp/generatedTest1.lua2p temp/generatedTest2.lua2p --debug]])
 
-	local luaOut = assert(readFile("temp/generatedTest1.lua"))
-	assertCodeOutput(luaOut, [[print("foo");local x = 7]])
-	local luaOut = assert(readFile("temp/generatedTest2.lua"))
-	assertCodeOutput(luaOut, enableInts and [[print("foo");local y = 1025.0]] or [[print("foo");local y = 1025]])
+	assertCodeOutput(readFile"temp/generatedTest1.lua", [[print("foo");local x = 7]])
+	assertCodeOutput(readFile"temp/generatedTest2.lua", enableInts and [[print("foo");local y = 1025.0]] or [[print("foo");local y = 1025]])
+end)
+
+doTest("Use stdin and stdout", function()
+	local luaExeMaybeQuoted = luaExe:find(" ", 1, true) and '"'..luaExe..'"' or luaExe
+
+	writeFile("temp/generatedTest.lua2p", [[ x = !(1+2) ]])
+	runCommand([[TYPE temp\generatedTest.lua2p | ]]..luaExeMaybeQuoted..[[ preprocess-cl.lua - >temp\generatedTest.lua]])
+	assertCodeOutput(readFile"temp/generatedTest.lua", [[x = 3]])
+end)
+
+doTest("Options", function()
+	--backtickstrings
+	writeFile("temp/generatedTest.lua2p", [[
+		s = `
+		foo\`
+	]])
+	runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
+	runCommand      (luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --backtickstrings]])
+	assertCodeOutput(readFile"temp/generatedTest.lua", [[s = "\n\t\tfoo\\"]])
+
+	--data
+	writeFile("temp/generatedTest.lua2p", [[ v = !(dataFromCommandLine) ]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])            ; assertCodeOutput(readFile"temp/generatedTest.lua", [[v = nil]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --data=foo]]) ; assertCodeOutput(readFile"temp/generatedTest.lua", [[v = "foo"]])
+
+	--faststrings (Just test for errors.)
+	writeFile("temp/generatedTest.lua2p", [[ s = !("\255") ]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --faststrings]])
+
+	--jitsyntax
+	if jit then
+		writeFile("temp/generatedTest.lua2p", [[ n = !(0b101) ]])
+		runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
+		runCommand      (luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --jitsyntax]])
+		assertCodeOutput(readFile"temp/generatedTest.lua", [[n = 5]])
+	end
+
+	--linenumbers
+	writeFile("temp/generatedTest.lua2p", [[
+		x = 1
+		y = 2
+	]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])               ; assertCodeOutput(readFile"temp/generatedTest.lua", "x = 1\n\t\ty = 2")
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --linenumbers]]) ; assertCodeOutput(readFile"temp/generatedTest.lua", "--[[@1]]x = 1\n\t\t--[[@2]]y = 2")
+
+	--loglevel
+	writeFile("temp/generatedTest.lua2p", [[ @@LOG("warning", "Uh oh!") ]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --loglevel=error]])   ; assertCodeOutput(readFile"temp/generatedTest.lua", [[]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --loglevel=warning]]) ; assertCodeOutput(readFile"temp/generatedTest.lua", [[print("Uh oh!")]])
+
+	--macroprefix/macrosuffix
+	writeFile("temp/generatedTest.lua2p", [[ !(local function m_foo()end) @@foo() ]]) ; runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --macroprefix=m_]])
+	writeFile("temp/generatedTest.lua2p", [[ !(local function foo_m()end) @@foo() ]]) ; runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --macrosuffix=_m]])
+
+	--meta
+	do
+		writeFile("temp/generatedTest.lua2p", [[ !tostring"" ]])
+		removeFile("temp/generatedTest.meta.lua")
+		runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --meta]])
+		assert(not fileExists("temp/generatedTest.meta.lua"))
+
+		writeFile("temp/generatedTest.lua2p", [[ !bad ]])
+		removeFile("temp/generatedTest.meta.lua")
+		runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --meta]])
+		assert(fileExists("temp/generatedTest.meta.lua"))
+	end
+
+	--nonil
+	writeFile("temp/generatedTest.lua2p", [[ v = !(nil) ]])
+	runCommand      (luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
+	runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --nonil]])
+
+	--novalidate
+	writeFile("temp/generatedTest.lua2p", [[ bad ]])
+	runCommand      (luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --novalidate]])
+	runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])
+
+	--outputextension
+	writeFile("temp/generatedTest.lua2p", [[]])
+	removeFile("temp/generatedTest.lua") ; runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])                       ; assert(fileExists("temp/generatedTest.lua"))
+	removeFile("temp/generatedTest.foo") ; runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --outputextension=foo]]) ; assert(fileExists("temp/generatedTest.foo"))
+	runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --outputextension=lua2p]]) -- Same resulting output path as the input path.
+
+	--outputpaths
+	writeFile("temp/generatedTest.lua2p", [[]])
+	removeFile("temp/generatedTest.foo") ; runCommand(luaExe, [[preprocess-cl.lua --outputpaths temp/generatedTest.lua2p temp/generatedTest.foo]]) ; assert(fileExists("temp/generatedTest.foo"))
+	runCommandToFail(luaExe, [[preprocess-cl.lua --outputpaths temp/generatedTest.lua2p]]) -- Missing output path.
+	runCommandToFail(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --outputpaths temp/generatedTest.lua]]) -- '--outputpaths' must appear before any input path.
+
+	--release
+	writeFile("temp/generatedTest.lua2p", [[ @@ASSERT(x, "Noes!") ]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])           ; assertCodeOutput(readFile"temp/generatedTest.lua", [[if not (x) then  error(("Noes!"))  end]])
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --release]]) ; assertCodeOutput(readFile"temp/generatedTest.lua", [[]])
+
+	--saveinfo
+	writeFile("temp/generatedTest.lua2p", [[]])
+	removeFile("temp/info.lua")
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --saveinfo=temp/info.lua]])
+	local info = requireNewTemp"temp.info"
+	assert(type(info) == "table")
+
+	--silent
+	do
+		writeFile("temp/generatedTest.lua2p", [[]])
+
+		local handle = assert(io.popen(createCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p]])))
+		local output = handle:read"*a"
+		handle:close()
+		assert(output:find("generatedTest.lua2p", 1, true)) -- Something like this should've been printed: Processing 'foo.lua2p'...
+
+		local handle = assert(io.popen(createCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --silent]])))
+		local output = handle:read"*a"
+		handle:close()
+		assert(output == "")
+	end
+
+	--version
+	writeFile("temp/generatedTest.lua2p", [[ print("Yo.") ]])
+	removeFile("temp/generatedTest.lua")
+	local handle = assert(io.popen(createCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --version]])))
+	local output = handle:read"*a"
+	handle:close()
+	assert(output:find"^%d+%.%d+%.%d+$" or output:find"^%d+%.%d+%.%d+%-%w+$") -- '1.2.3' or '1.2.3-foo'
+	assert(not fileExists("temp/generatedTest.lua")) -- '--version' should prevent any processing.
+
+	--debug (Just check that the meta file isn't removed.)
+	writeFile("temp/generatedTest.lua2p", [[ !tostring"" ]])
+	removeFile("temp/generatedTest.meta.lua")
+	runCommand(luaExe, [[preprocess-cl.lua temp/generatedTest.lua2p --debug]])
+	assert(fileExists("temp/generatedTest.meta.lua"))
+
+	-- (Stop parsing options.)
+	writeFile("--foo.lua2p", [[]]) -- Note: We're operating outside the temp folder!
+	runCommandToFail(luaExe, [[preprocess-cl.lua    --foo.lua2p]]) -- Invalid option.
+	runCommand      (luaExe, [[preprocess-cl.lua -- --foo.lua2p]])
+	assert(fileExists("--foo.lua"))
+	removeFile("--foo.lua2p")
+	removeFile("--foo.lua")
+end)
+
+doTest("Messages", function()
+	-- @Incomplete
 end)
 
 
