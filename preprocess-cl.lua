@@ -51,7 +51,7 @@ exec lua "$0" "$@"
 			called with various messages as it's first argument. If it's
 			a table, the keys should be the message names and the values
 			should be functions to handle the respective message.
-			(See 'Handler messages' and tests/testHandler.lua)
+			(See 'Handler messages' and tests/quickTestHandler*.lua)
 			The file shares the same environment as the processed files.
 
 		--jitsyntax

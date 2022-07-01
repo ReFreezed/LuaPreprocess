@@ -33,6 +33,9 @@ local function doTestUnprotected(description, f, ...)
 	f(...)
 	table.insert(results, {description=description, ok=true})
 end
+local function doTestDisabled()
+	-- void
+end
 local function addLabel(label)
 	table.insert(results, {label=label})
 end
@@ -779,7 +782,7 @@ doTest("Handler + multiple files", function()
 	assertCodeOutput(readFile"temp/generatedTest2.lua", enableInts and [[print("foo");local y = 1025.0]] or [[print("foo");local y = 1025]])
 end)
 
-doTest("Use stdin and stdout", function()
+doTest("stdin and stdout", function()
 	local luaExeMaybeQuoted = luaExe:find(" ", 1, true) and '"'..luaExe..'"' or luaExe
 
 	writeFile("temp/generatedTest.lua2p", [[ x = !(1+2) ]])
@@ -919,7 +922,62 @@ doTest("Options", function()
 end)
 
 doTest("Messages", function()
-	-- @Incomplete
+	for cycle = 1, 2 do
+		print("Cycle "..cycle)
+
+		writeFile("temp/generatedHandler.lua",
+			cycle == 1 and [[ return {
+				init       = function(inPaths, outPaths  )  assert(not outPaths) ; table.insert(inPaths, "temp/generatedTest.lua2p")  end,
+				insert     = function(path, name         )  assert(name == "foo()") ; return "un"..name  end,
+				beforemeta = function(path               )  end,
+				aftermeta  = function(path, lua          )  return "-- Hello\n"..lua  end,
+				filedone   = function(path, outPath, info)  assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")  end,
+				fileerror  = function(path, err          )  end,
+			}]]
+			or [[ return function(message, ...)
+				if     message == "init"       then  local inPaths, outPaths   = ... ; assert(not outPaths) ; table.insert(inPaths, "temp/generatedTest.lua2p")
+				elseif message == "insert"     then  local path, name          = ... ; assert(name == "foo()") ; return "un"..name
+				elseif message == "beforemeta" then  local path                = ...
+				elseif message == "aftermeta"  then  local path, lua           = ... ; return "-- Hello\n"..lua
+				elseif message == "filedone"   then  local path, outPath, info = ... ; assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")
+				elseif message == "fileerror"  then  local path, err           = ...
+				else error(message) end
+			end]]
+		)
+
+		writeFile("temp/generatedTest.lua2p", [[@insert"foo()"]])
+		removeFile("temp/generatedTest.lua")
+		runCommand(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua]])
+		assertCodeOutput(readFile"temp/generatedTest.lua", '-- Hello\nunfoo()')
+	end
+
+	-- "init"
+	do
+		writeFile("temp/generatedTest.lua2p", [[]])
+
+		writeFile("temp/generatedHandler.lua", [[ return {init=function(inPaths, outPaths)  end} ]])
+		runCommand(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua --outputpaths temp/generatedTest.lua2p temp/generatedTest.lua]])
+
+		-- Path arrays must be the same length.
+		writeFile("temp/generatedHandler.lua", [[ return {init=function(inPaths, outPaths)  outPaths[1] = nil  end} ]])
+		runCommandToFail(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua --outputpaths temp/generatedTest.lua2p temp/generatedTest.lua]])
+
+		-- Path arrays must not be empty.
+		writeFile("temp/generatedHandler.lua", [[ return {init=function(inPaths, outPaths) inPaths[1] = nil ; if outPaths then outPaths[1] = nil end  end} ]])
+		runCommandToFail(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua               temp/generatedTest.lua2p]])
+		runCommandToFail(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua --outputpaths temp/generatedTest.lua2p temp/generatedTest.lua]])
+	end
+
+	-- "insert" must return a string.
+	writeFile("temp/generatedTest.lua2p",  [[ n = @insert"" ]])
+	writeFile("temp/generatedHandler.lua", [[ return{insert=function()return"5"end} ]]) ; runCommand      (luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua temp/generatedTest.lua2p]])
+	writeFile("temp/generatedHandler.lua", [[ return{insert=function()return 5 end} ]]) ; runCommandToFail(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua temp/generatedTest.lua2p]])
+
+	-- "aftermeta" must return a string or nil/nothing.
+	writeFile("temp/generatedTest.lua2p",  [[ whatever ]])
+	writeFile("temp/generatedHandler.lua", [[ return{aftermeta=function()         end} ]]) ; runCommand      (luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua --novalidate temp/generatedTest.lua2p]])
+	writeFile("temp/generatedHandler.lua", [[ return{aftermeta=function()return"5"end} ]]) ; runCommand      (luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua --novalidate temp/generatedTest.lua2p]])
+	writeFile("temp/generatedHandler.lua", [[ return{aftermeta=function()return 5 end} ]]) ; runCommandToFail(luaExe, [[preprocess-cl.lua --handler=temp/generatedHandler.lua --novalidate temp/generatedTest.lua2p]])
 end)
 
 
