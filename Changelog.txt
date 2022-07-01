@@ -1,6 +1,21 @@
 Changelog
 LuaPreprocess
 
+v1.20 (2022-07-01)
+Library:
+- getOutputSoFar() can now take an output buffer argument.
+- Detecting duplicate names in dual code: !!x, x = ...
+- Fixed evaluate() sometimes raising an error instead of returning it.
+- Fixed issue with files not ending with a newline.
+- Fixed silly internal error when Lua 5.2+ was used.
+Command line program:
+- Added options: --version, --help.
+- Added "alldone" message.
+- --meta can now take a file path.
+- Fixed silly internal error when Lua 5.2+ was used.
+Repository:
+- Fixed test suite not working in Lua 5.2+. Oops!
+
 v1.19 (2022-06-20)
 Library:
 - All uses of '!' now work in macros.
@@ -166,7 +181,7 @@ v1.3 (2019-01-05)
 - Added concatTokens().
 
 v1.2 (2019-01-03)
-- Added pp.processString().
+- Added processString().
 
 v1.1.1 (2019-01-02)
 - (No info)
@@ -175,4 +190,4 @@ v1.1 (2018-12-22)
 - (No info)
 
 v1.0 (2018-11-02)
-- Initial release.
+- Initial release!

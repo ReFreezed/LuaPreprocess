@@ -1,7 +1,7 @@
 #!/bin/sh
 _=[[
 exec lua "$0" "$@"
-]]
+]]and nil
 --==============================================================
 --=
 --=  LuaPreprocess command line program

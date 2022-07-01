@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess v1.19-dev - preprocessing library
+--=  LuaPreprocess v1.20 - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -131,7 +131,7 @@
 
 
 
-local PP_VERSION = "1.19.0-dev"
+local PP_VERSION = "1.20.0"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
