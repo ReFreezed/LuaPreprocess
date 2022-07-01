@@ -1713,7 +1713,7 @@ function metaFuncs.outputLuaTemplate(lua, ...)
 	errorIfNotRunningMeta(2)
 	assertarg(1, lua, "string")
 
-	local args = {...}
+	local args = {...} -- @Memory
 	local n    = 0
 	local v, err
 
@@ -1733,20 +1733,32 @@ end
 
 -- getOutputSoFar()
 --   luaString = getOutputSoFar( [ asTable=false ] )
+--   getOutputSoFar( buffer )
 --   Get Lua code that's been outputted so far.
 --   If asTable is false then the full Lua code string is returned.
 --   If asTable is true then an array of Lua code segments is returned. (This avoids allocating, possibly large, strings.)
+--   If a buffer array is given then Lua code segments are added to it.
 --   Raises an error if no file or string is being processed.
-function metaFuncs.getOutputSoFar(asTable)
+function metaFuncs.getOutputSoFar(bufferOrAsTable)
 	errorIfNotRunningMeta(2)
+
 	-- Should there be a way to get the contents of current_meta_output etc.? :GetMoreOutputFromStack
-	return asTable and copyArray(current_meta_outputStack[1]) or table.concat(current_meta_outputStack[1])
+
+	if type(bufferOrAsTable) == "table" then
+		for _, lua in ipairs(current_meta_outputStack[1]) do
+			tableInsert(bufferOrAsTable, lua)
+		end
+		-- Return nothing!
+
+	else
+		return bufferOrAsTable and copyArray(current_meta_outputStack[1]) or table.concat(current_meta_outputStack[1])
+	end
 end
 
 local function getOutputSoFarOnLine()
 	errorIfNotRunningMeta(2)
 
-	local lineFragments = {}
+	local lineFragments = {} -- @Memory
 
 	-- Should there be a way to get the contents of current_meta_output etc.? :GetMoreOutputFromStack
 	for i = #current_meta_outputStack[1], 1, -1 do
@@ -2148,7 +2160,7 @@ end
 function metaFuncs.startInterceptingOutput()
 	errorIfNotRunningMeta(2)
 
-	current_meta_output = {}
+	current_meta_output = {} -- @Memory (Especially if lots of macro calls are used!)
 	tableInsert(current_meta_outputStack, current_meta_output)
 end
 
@@ -2234,7 +2246,7 @@ function metaFuncs.LOG(logLevelCode, valueOrFormatCode, ...)
 
 	if ... then
 		tableInsert(current_meta_output, "string.format(")
-		tableInsert(current_meta_output, table.concat({valueOrFormatCode, ...}, ", "))
+		tableInsert(current_meta_output, table.concat({valueOrFormatCode, ...}, ", ")) -- @Memory
 		tableInsert(current_meta_output, ")")
 	else
 		tableInsert(current_meta_output, valueOrFormatCode)

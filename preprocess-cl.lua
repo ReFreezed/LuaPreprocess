@@ -468,7 +468,7 @@ end
 
 
 -- Init stuff.
-sendMessage("init", pathsIn, (hasOutputPaths and pathsOut or nil))
+sendMessage("init", pathsIn, (hasOutputPaths and pathsOut or nil)) -- @Incomplete: Use pcall and format error message better?
 
 if not hasOutputPaths then
 	for i, pathIn in ipairs(pathsIn) do
@@ -635,7 +635,7 @@ printfNoise(
 	formatBytes(byteCount)
 )
 
-sendMessage("alldone")
+sendMessage("alldone") -- @Incomplete: Use pcall and format error message better?
 
 
 

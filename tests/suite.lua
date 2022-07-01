@@ -739,6 +739,16 @@ doTest("Misc.", function()
 	assertCodeOutput(assert(pp.processString{ code="x = 1 ; y = !(getOutputSoFar())"                                               }), 'x = 1 ; y = "x = 1 ; y = "')
 	assertCodeOutput(assert(pp.processString{ code="x = !(getOutputSoFarOnLine        ())\n\ty = !(getOutputSoFarOnLine        ())"}), 'x = "x = "\n\ty = "\\ty = "')
 	assertCodeOutput(assert(pp.processString{ code="x = !(getCurrentLineNumberInOutput())\n\ty = !(getCurrentLineNumberInOutput())"}), "x = 1\n\ty = 2")
+
+	assert(pp.processString{ code=[[
+		x = 1
+		!(
+		local buffer = {}
+		getOutputSoFar(buffer)
+		assert(table.concat(buffer):find"^%s*x = 1%s*$")
+		)
+		y = 2
+	]]})
 end)
 
 
