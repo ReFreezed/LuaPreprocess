@@ -2,7 +2,7 @@
 _=[[
 exec lua "$0" "$@"
 ]]
---[[============================================================
+--==============================================================
 --=
 --=  LuaPreprocess command line program
 --=  by Marcus 'ReFreezed' Thunström
@@ -16,117 +16,118 @@ exec lua "$0" "$@"
 --=  Tested with Lua 5.1, 5.2, 5.3, 5.4 and LuaJIT.
 --=
 --==============================================================
+local help = [[
 
-	Script usage:
-		lua preprocess-cl.lua               [options] [--] filepath1 [filepath2 ...]
-		OR
-		lua preprocess-cl.lua --outputpaths [options] [--] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
+Script usage:
+	lua preprocess-cl.lua               [options] [--] filepath1 [filepath2 ...]
+	OR
+	lua preprocess-cl.lua --outputpaths [options] [--] inputpath1 outputpath1 [inputpath2 outputpath2 ...]
 
-		File paths can be "-" for usage of stdin/stdout.
+	File paths can be "-" for usage of stdin/stdout.
 
-	Examples:
-		lua preprocess-cl.lua --saveinfo=logs/info.lua --silent src/main.lua2p src/network.lua2p
-		lua preprocess-cl.lua --debug src/main.lua2p src/network.lua2p
-		lua preprocess-cl.lua --outputpaths --linenumbers src/main.lua2p output/main.lua src/network.lua2p output/network.lua
+Examples:
+	lua preprocess-cl.lua --saveinfo=logs/info.lua --silent src/main.lua2p src/network.lua2p
+	lua preprocess-cl.lua --debug src/main.lua2p src/network.lua2p
+	lua preprocess-cl.lua --outputpaths --linenumbers src/main.lua2p output/main.lua src/network.lua2p output/network.lua
 
-	Options:
-		--backtickstrings
-			Enable the backtick (`) to be used as string literal delimiters.
-			Backtick strings don't interpret any escape sequences and can't
-			contain other backticks.
+Options:
+	--backtickstrings
+		Enable the backtick (`) to be used as string literal delimiters.
+		Backtick strings don't interpret any escape sequences and can't
+		contain other backticks.
 
-		--data|-d="Any data."
-			A string with any data. If this option is present then the value
-			will be available through the global 'dataFromCommandLine' in the
-			processed files (and any message handler). Otherwise,
-			'dataFromCommandLine' is nil.
+	--data|-d="Any data."
+		A string with any data. If this option is present then the value
+		will be available through the global 'dataFromCommandLine' in the
+		processed files (and any message handler). Otherwise,
+		'dataFromCommandLine' is nil.
 
-		--faststrings
-			Force fast serialization of string values. (Non-ASCII characters
-			will look ugly.)
+	--faststrings
+		Force fast serialization of string values. (Non-ASCII characters
+		will look ugly.)
 
-		--handler|-h=pathToMessageHandler
-			Path to a Lua file that's expected to return a function or a
-			table of functions. If it returns a function then it will be
-			called with various messages as it's first argument. If it's
-			a table, the keys should be the message names and the values
-			should be functions to handle the respective message.
-			(See 'Handler messages' and tests/quickTestHandler*.lua)
-			The file shares the same environment as the processed files.
+	--handler|-h=pathToMessageHandler
+		Path to a Lua file that's expected to return a function or a
+		table of functions. If it returns a function then it will be
+		called with various messages as it's first argument. If it's
+		a table, the keys should be the message names and the values
+		should be functions to handle the respective message.
+		(See 'Handler messages' and tests/quickTestHandler*.lua)
+		The file shares the same environment as the processed files.
 
-		--jitsyntax
-			Allow LuaJIT-specific syntax, specifically literals for 64-bit
-			integers and complex numbers.
-			(https://luajit.org/ext_ffi_api.html#literals)
+	--help
+		Show this help.
 
-		--linenumbers
-			Add comments with line numbers to the output.
+	--jitsyntax
+		Allow LuaJIT-specific syntax, specifically literals for 64-bit
+		integers and complex numbers.
+		(https://luajit.org/ext_ffi_api.html#literals)
 
-		--loglevel=levelName
-			Set maximum log level for the @@LOG() macro. Can be "off",
-			"error", "warning", "info", "debug" or "trace". The default is
-			"trace", which enables all logging.
+	--linenumbers
+		Add comments with line numbers to the output.
 
-		--macroprefix=prefix
-			String to prepend to macro names.
+	--loglevel=levelName
+		Set maximum log level for the @@LOG() macro. Can be "off",
+		"error", "warning", "info", "debug" or "trace". The default is
+		"trace", which enables all logging.
 
-		--macrosuffix=suffix
-			String to append to macro names.
+	--macroprefix=prefix
+		String to prepend to macro names.
 
-		--meta OR --meta=pathToSaveMetaprogramTo
-			Output the metaprogram to a temporary file (*.meta.lua). Useful if
-			an error happens when the metaprogram runs. This file is removed
-			if there's no error and --debug isn't enabled.
+	--macrosuffix=suffix
+		String to append to macro names.
 
-		--nogc
-			Stop the garbage collector. This may speed up the preprocessing.
+	--meta OR --meta=pathToSaveMetaprogramTo
+		Output the metaprogram to a temporary file (*.meta.lua). Useful if
+		an error happens when the metaprogram runs. This file is removed
+		if there's no error and --debug isn't enabled.
 
-		--nonil
-			Disallow !(...) and outputValue(...) from outputting nil.
+	--nogc
+		Stop the garbage collector. This may speed up the preprocessing.
 
-		--novalidate
-			Disable validation of outputted Lua.
+	--nonil
+		Disallow !(...) and outputValue(...) from outputting nil.
 
-		--outputextension=fileExtension
-			Specify what file extension generated files should have. The
-			default is "lua". If any input files end in .lua then you must
-			specify another file extension with this option. (It's suggested
-			that you use .lua2p (as in "Lua To Process") as extension for
-			unprocessed files.)
+	--novalidate
+		Disable validation of outputted Lua.
 
-		--outputpaths|-o
-			This flag makes every other specified path be the output path
-			for the previous path.
+	--outputextension=fileExtension
+		Specify what file extension generated files should have. The
+		default is "lua". If any input files end in .lua then you must
+		specify another file extension with this option. (It's suggested
+		that you use .lua2p (as in "Lua To Process") as extension for
+		unprocessed files.)
 
-		--release
-			Enable release mode. Currently only disables the @@ASSERT() macro.
+	--outputpaths|-o
+		This flag makes every other specified path be the output path
+		for the previous path.
 
-		--saveinfo|-i=pathToSaveProcessingInfoTo
-			Processing information includes what files had any preprocessor
-			code in them, and things like that. The format of the file is a
-			lua module that returns a table. Search this file for 'SavedInfo'
-			to see what information is saved.
+	--release
+		Enable release mode. Currently only disables the @@ASSERT() macro.
 
-		--silent
-			Only print errors to the console. (This flag is automatically
-			enabled if an output path is stdout.)
+	--saveinfo|-i=pathToSaveProcessingInfoTo
+		Processing information includes what files had any preprocessor
+		code in them, and things like that. The format of the file is a
+		lua module that returns a table. Search this file for 'SavedInfo'
+		to see what information is saved.
 
-		--version
-			Print the version of LuaPreprocess to stdout and exit.
+	--silent
+		Only print errors to the console. (This flag is automatically
+		enabled if an output path is stdout.)
 
-		--debug
-			Enable some preprocessing debug features. Useful if you want
-			to inspect the generated metaprogram (*.meta.lua). (This also
-			enables the --meta option.)
+	--version
+		Print the version of LuaPreprocess to stdout and exit.
 
-		--
-			Stop options from being parsed further. Needed if you have paths
-			starting with "-" (except for usage of stdin/stdout).
+	--debug
+		Enable some preprocessing debug features. Useful if you want
+		to inspect the generated metaprogram (*.meta.lua). (This also
+		enables the --meta option.)
 
-----------------------------------------------------------------
+	--
+		Stop options from being parsed further. Needed if you have paths
+		starting with "-" (except for usage of stdin/stdout).
 
-	Handler messages:
-
+Handler messages:
 	"init"
 		Sent before any other message.
 		Arguments:
@@ -167,8 +168,10 @@ exec lua "$0" "$@"
 		Sent after all other messages (right before the program exits).
 		Arguments:
 			(none)
+]]
+--==============================================================
 
---============================================================]]
+
 
 local startTime  = os.time()
 local startClock = os.clock()
@@ -291,7 +294,12 @@ local pathsIn            = {}
 local pathsOut           = {}
 
 for _, arg in ipairs(args) do
-	if not (processOptions and arg:find"^%-.") then
+	if processOptions and (arg:find"^%-%-?help$" or arg == "/?" or arg:find"^/[Hh][Ee][Ll][Pp]$") then
+		print("LuaPreprocess v"..pp.VERSION)
+		print((help:gsub("\t", "    ")))
+		os.exit()
+
+	elseif not (processOptions and arg:find"^%-.") then
 		local paths = (hasOutputPaths and #pathsOut < #pathsIn) and pathsOut or pathsIn
 		table.insert(paths, arg)
 
@@ -374,10 +382,6 @@ for _, arg in ipairs(args) do
 	elseif arg == "--version" then
 		io.stdout:write(pp.VERSION)
 		os.exit()
-
-	-- elseif arg == "/?" or arg:find"^%-%-?help" or arg:lower() == "/help" then
-	-- 	-- @Incomplete!
-	-- 	os.exit()
 
 	else
 		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
