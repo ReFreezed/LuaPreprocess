@@ -933,6 +933,7 @@ doTest("Messages", function()
 				aftermeta  = function(path, lua          )  return "-- Hello\n"..lua  end,
 				filedone   = function(path, outPath, info)  assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")  end,
 				fileerror  = function(path, err          )  end,
+				alldone    = function(                   )  end,
 			}]]
 			or [[ return function(message, ...)
 				if     message == "init"       then  local inPaths, outPaths   = ... ; assert(not outPaths) ; table.insert(inPaths, "temp/generatedTest.lua2p")
@@ -941,7 +942,8 @@ doTest("Messages", function()
 				elseif message == "aftermeta"  then  local path, lua           = ... ; return "-- Hello\n"..lua
 				elseif message == "filedone"   then  local path, outPath, info = ... ; assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")
 				elseif message == "fileerror"  then  local path, err           = ...
-				else error(message) end
+				elseif message == "alldone"    then  -- void
+				else error("Unhandled message '"..tostring(message).."'") end
 			end]]
 		)
 

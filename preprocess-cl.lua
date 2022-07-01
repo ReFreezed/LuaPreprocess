@@ -163,6 +163,11 @@ exec lua "$0" "$@"
 			path: The file being processed.
 			error: The error message.
 
+	"alldone"
+		Sent after all other messages (right before the program exits).
+		Arguments:
+			(none)
+
 --============================================================]]
 
 local startTime  = os.time()
@@ -630,11 +635,13 @@ printfNoise(
 	formatBytes(byteCount)
 )
 
+sendMessage("alldone")
+
 
 
 --[[!===========================================================
 
-Copyright © 2018-2021 Marcus 'ReFreezed' Thunström
+Copyright © 2018-2022 Marcus 'ReFreezed' Thunström
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
