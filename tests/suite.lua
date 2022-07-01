@@ -1,7 +1,6 @@
 --==============================================================
 --=
 --=  Test suite for LuaPreprocess
---=  Note: The command line program tests expect the OS to be Windows!
 --=
 --==============================================================
 
@@ -72,19 +71,15 @@ local function assertCodeOutput(codeOut, codeExpected, message)
 	end
 end
 
--- command = createCommand( program, argumentsString )
-local function createCommand(program, argsStr)
+-- command = createCommand( program, rest )
+local function createCommand(program, rest)
 	return program:find(" ", 1, true)
-	       and '""'..program..'" '..argsStr..'"'
-	       or  program..' '..argsStr
+	       and '""'..program..'" '..rest..'"'
+	       or  program..' '..rest
 end
 
--- runCommand( command )
--- runCommand( program, argumentsString )
--- runCommandToFail( command )
--- runCommandToFail( program, argumentsString )
-local function _runCommand(program, argsStr, expectSuccess)
-	local cmd = not argsStr and program or createCommand(program, argsStr)
+local function _runCommand(program, rest, expectSuccess)
+	local cmd = createCommand(program, rest)
 	print("Running command: "..cmd)
 
 	if jit or _VERSION >= "Lua 5.2" then
@@ -99,11 +94,18 @@ local function _runCommand(program, argsStr, expectSuccess)
 		else                       error("Command succeeded unexpectedly: "..cmd, 2)  end
 	end
 end
-local function runCommand(program, argsStr)
-	_runCommand(program, argsStr, true)
+local function runCommand(program, rest)
+	_runCommand(program, rest, true)
 end
-local function runCommandToFail(program, argsStr)
-	_runCommand(program, argsStr, false)
+local function runCommandToFail(program, rest)
+	_runCommand(program, rest, false)
+end
+local function runCommandAndSendData(luaExe, rest, dataStr)
+	local cmd = createCommand(luaExe, rest)
+	print("Running command: "..cmd)
+	local handle = assert(io.popen(cmd, "w"))
+	handle:write(dataStr)
+	handle:close()
 end
 
 local function requireNewTemp(moduleName)
@@ -793,10 +795,7 @@ doTest("Handler + multiple files", function()
 end)
 
 doTest("stdin and stdout", function()
-	local luaExeMaybeQuoted = luaExe:find(" ", 1, true) and '"'..luaExe..'"' or luaExe
-
-	writeFile("temp/generatedTest.lua2p", [[ x = !(1+2) ]])
-	runCommand([[TYPE temp\generatedTest.lua2p | ]]..luaExeMaybeQuoted..[[ preprocess-cl.lua - >temp\generatedTest.lua]])
+	runCommandAndSendData(luaExe, [[preprocess-cl.lua - >temp\generatedTest.lua]], [[ x = !(1+2) ]])
 	assertCodeOutput(readFile"temp/generatedTest.lua", [[x = 3]])
 end)
 
