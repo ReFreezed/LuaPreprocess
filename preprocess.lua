@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess v1.20 - preprocessing library
+--=  LuaPreprocess v1.20-dev - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -131,7 +131,7 @@
 
 
 
-local PP_VERSION = "1.20.0"
+local PP_VERSION = "1.20.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 
@@ -1755,23 +1755,28 @@ function metaFuncs.getOutputSoFar(bufferOrAsTable)
 	end
 end
 
+local lineFragments = {}
+
 local function getOutputSoFarOnLine()
 	errorIfNotRunningMeta(2)
 
-	local lineFragments = {} -- @Memory
+	local len = 0
 
 	-- Should there be a way to get the contents of current_meta_output etc.? :GetMoreOutputFromStack
 	for i = #current_meta_outputStack[1], 1, -1 do
 		local fragment = current_meta_outputStack[1][i]
 
 		if fragment:find("\n", 1, true) then
-			tableInsert(lineFragments, (fragment:gsub(".*\n", "")))
+			len                = len + 1
+			lineFragments[len] = fragment:gsub(".*\n", "")
 			break
 		end
-		tableInsert(lineFragments, fragment)
+
+		len                = len + 1
+		lineFragments[len] = fragment
 	end
 
-	return table.concat(lineFragments)
+	return table.concat(lineFragments, 1, len)
 end
 
 -- getOutputSoFarOnLine()
@@ -2153,6 +2158,8 @@ function metaFuncs.concatTokens(tokens)
 	return (_concatTokens(tokens, nil, false, nil, nil))
 end
 
+local recycledArrays = {}
+
 -- startInterceptingOutput()
 --   startInterceptingOutput( )
 --   Start intercepting output until stopInterceptingOutput() is called.
@@ -2160,7 +2167,8 @@ end
 function metaFuncs.startInterceptingOutput()
 	errorIfNotRunningMeta(2)
 
-	current_meta_output = {} -- @Memory (Especially if lots of macro calls are used!)
+	current_meta_output = tableRemove(recycledArrays) or {}
+	for i = 1, #current_meta_output do  current_meta_output[i] = nil  end
 	tableInsert(current_meta_outputStack, current_meta_output)
 end
 
@@ -2169,6 +2177,7 @@ local function _stopInterceptingOutput(errLevel)
 
 	local interceptedLua = tableRemove(current_meta_outputStack)
 	current_meta_output  = current_meta_outputStack[#current_meta_outputStack] or error("Called stopInterceptingOutput() before calling startInterceptingOutput().", 1+errLevel)
+	tableInsert(recycledArrays, interceptedLua)
 
 	return table.concat(interceptedLua)
 end
@@ -2246,7 +2255,11 @@ function metaFuncs.LOG(logLevelCode, valueOrFormatCode, ...)
 
 	if ... then
 		tableInsert(current_meta_output, "string.format(")
-		tableInsert(current_meta_output, table.concat({valueOrFormatCode, ...}, ", ")) -- @Memory
+		tableInsert(current_meta_output, valueOrFormatCode)
+		for i = 1, select("#", ...) do
+			tableInsert(current_meta_output, ", ")
+			tableInsert(current_meta_output, (select(i, ...)))
+		end
 		tableInsert(current_meta_output, ")")
 	else
 		tableInsert(current_meta_output, valueOrFormatCode)

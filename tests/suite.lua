@@ -467,31 +467,13 @@ doTest("Predefined macros", function()
 	local pp = ppChunk()
 
 	-- @@ASSERT()
-	local luaOut = assert(pp.processString{ code=[[
-		@@ASSERT(foo)
-	]]})
-	assertCodeOutput(luaOut, [[if not (foo) then  error("Assertion failed: foo")  end]])
-
-	local luaOut = assert(pp.processString{ code=[[
-		@@ASSERT(foo ~= "good", "Bad foo: "..foo)
-	]]})
-	assertCodeOutput(luaOut, [[if not (foo ~= "good") then  error(("Bad foo: "..foo))  end]])
+	assertCodeOutput(assert(pp.processString{ code=[[ @@ASSERT(foo)                             ]]}), [[if not (foo) then  error("Assertion failed: foo")  end]])
+	assertCodeOutput(assert(pp.processString{ code=[[ @@ASSERT(foo ~= "good", "Bad foo: "..foo) ]]}), [[if not (foo ~= "good") then  error(("Bad foo: "..foo))  end]])
 
 	-- @@LOG()
-	local luaOut = assert(pp.processString{ logLevel="error", code=[[
-		@@LOG("warning", "Uh oh!")
-	]]})
-	assertCodeOutput(luaOut, [[]])
-
-	local luaOut = assert(pp.processString{ logLevel="warning", code=[[
-		@@LOG("warning", "Uh oh!")
-	]]})
-	assertCodeOutput(luaOut, [[print("Uh oh!")]])
-
-	local luaOut = assert(pp.processString{ code=[[
-		@@LOG("warning", "Number: %d", num)
-	]]})
-	assertCodeOutput(luaOut, [[print(string.format("Number: %d", num))]])
+	assertCodeOutput(assert(pp.processString{ logLevel="error",   code=[[ @@LOG("warning", "Uh oh!")          ]]}), [[]])
+	assertCodeOutput(assert(pp.processString{ logLevel="warning", code=[[ @@LOG("warning", "Uh oh!")          ]]}), [[print("Uh oh!")]])
+	assertCodeOutput(assert(pp.processString{                     code=[[ @@LOG("warning", "Number: %d", num) ]]}), [[print(string.format("Number: %d", num))]])
 
 	-- Invalid: Bad log level.
 	assert(not pp.processString{ logLevel="bad", code=""})
