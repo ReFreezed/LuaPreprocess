@@ -729,6 +729,8 @@ end)
 doTest("Misc.", function()
 	local pp = ppChunk()
 
+	-- metaEnvironment is a shallow copy of _G.
+	assert(pp.metaEnvironment       ~= _G)
 	assert(pp.metaEnvironment.table == table)
 
 	-- Natural comparisons.
@@ -763,6 +765,30 @@ doTest("Misc.", function()
 		)
 		y = 2
 	]]})
+
+	-- Macros.
+	local luaOut = assert(pp.processString{ code=[[
+		!!(callMacro("ASSERT", "x", "foo()"))
+	]]})
+	assertCodeOutput(luaOut, "if not (x) then  error((foo()))  end")
+
+	local luaOut = assert(pp.processString{ macroPrefix="MACRO_", code=[[
+		!function _G.MACRO_MOO() return "foo()" end -- Must be global!
+		!!(callMacro("MOO"))
+	]]})
+	assertCodeOutput(luaOut, "foo()")
+	pp.metaEnvironment.MACRO_MOO = nil
+
+	assert(not pp.processString{ macroPrefix="MACRO_", code=[[
+		!local function MACRO_MOO() return "foo()" end -- Not a global!
+		!!(callMacro("MOO"))
+	]]})
+
+	assert(not pp.processString{ macroPrefix="MACRO_", code=[[
+		!function _G.MACRO_MOO() return "foo()" end
+		!!(callMacro("MACRO_MOO")) -- Calls MACRO_MACRO_MOO!
+	]]})
+	pp.metaEnvironment.MACRO_MOO = nil
 end)
 
 

@@ -28,7 +28,7 @@
 	Only during processing:
 	- getCurrentPathIn, getCurrentPathOut
 	- getOutputSoFar, getOutputSoFarOnLine, getOutputSizeSoFar, getCurrentLineNumberInOutput, getCurrentIndentationInOutput
-	- loadResource
+	- loadResource, callMacro
 	- outputValue, outputLua, outputLuaTemplate
 	- startInterceptingOutput, stopInterceptingOutput
 	Macros:
@@ -209,6 +209,8 @@ local current_parsing_insertCount                 = 0
 local current_parsingAndMeta_onInsert             = nil
 local current_parsingAndMeta_fileBuffers          = nil
 local current_parsingAndMeta_addLineNumbers       = false
+local current_parsingAndMeta_macroPrefix          = ""
+local current_parsingAndMeta_macroSuffix          = ""
 local current_parsingAndMeta_strictMacroArguments = true
 local current_meta_pathForErrorMessages           = ""
 local current_meta_outputStack                    = nil
@@ -1997,7 +1999,6 @@ function metaFuncs.getNextUsefulToken(tokens, i1, steps)
 end
 
 local numberFormatters = {
-	-- @Incomplete: Hexadecimal floats.
 	auto        = function(n) return tostring(n) end,
 	integer     = function(n) return F("%d", n) end,
 	int         = function(n) return F("%d", n) end,
@@ -2247,6 +2248,32 @@ function metaFuncs.loadResource(resourceName)
 	return (_loadResource(resourceName, false, 2))
 end
 
+local function isCallable(v)
+	return type(v) == "function"
+		-- We use debug.getmetatable instead of _G.getmetatable because we don't want to
+		-- potentially invoke user code - we just want to know if the value is callable.
+		or (type(v) == "table" and debug.getmetatable(v) ~= nil and type(debug.getmetatable(v).__call) == "function")
+end
+
+-- callMacro()
+--   luaString = callMacro( macroName, argument1, ... )
+--   Call a macro function (which must be a global in metaEnvironment).
+--   The arguments should be Lua code strings.
+function metaFuncs.callMacro(name, ...)
+	errorIfNotRunningMeta(2)
+
+	local nameResult = current_parsingAndMeta_macroPrefix .. name .. current_parsingAndMeta_macroSuffix
+	local f          = metaEnv[nameResult]
+
+	if not isCallable(f) then
+		if    name == nameResult
+		then  errorf(2, "'%s' is not a macro/global function. (Got %s)", name, type(f))
+		else  errorf(2, "'%s' (resolving to '%s') is not a macro/global function. (Got %s)", name, nameResult, type(f))  end
+	end
+
+	return (metaEnv.__M()(f(...)))
+end
+
 -- :PredefinedMacros
 
 -- ASSERT()
@@ -2379,13 +2406,7 @@ function metaEnv.__ARG(locTokNum, v)
 end
 
 function metaEnv.__EVAL(v) -- For symbols.
-	if
-		type(v) == "function"
-		-- We use debug.getmetatable instead of _G.getmetatable because we
-		-- don't want to potentially invoke user code right here - we just
-		-- want to know if the value is callable.
-		or (type(v) == "table" and debug.getmetatable(v) and debug.getmetatable(v).__call)
-	then
+	if isCallable(v) then
 		v = v()
 	end
 	return v
@@ -2609,12 +2630,8 @@ end
 
 -- outTokens = doExpansions( params, tokensToExpand, stats )
 local function doExpansions(params, tokens, stats)
-	local macroPrefix = params.macroPrefix or ""
-	local macroSuffix = params.macroSuffix or ""
-
 	tokens = doEarlyExpansions(tokens, stats)
 	tokens = doLateExpansions (tokens, stats, params.backtickStrings, params.jitSyntax) -- Resources.
-
 	return tokens
 end
 
@@ -2908,7 +2925,7 @@ local function astParseMacro(params, tokens)
 	local initialCalleeIdentTok = tokNext
 
 	-- Add macro prefix and suffix. (Note: We only edit the initial identifier in the callee if there are more.)
-	initialCalleeIdentTok.value          = (params.macroPrefix or "") .. initialCalleeIdentTok.value .. (params.macroSuffix or "")
+	initialCalleeIdentTok.value          = current_parsingAndMeta_macroPrefix .. initialCalleeIdentTok.value .. current_parsingAndMeta_macroSuffix
 	initialCalleeIdentTok.representation = initialCalleeIdentTok.value
 
 	-- Maybe add '.field[expr]:method' for rest of callee.
@@ -3486,6 +3503,8 @@ local function _processFileOrString(params, isFile)
 	current_parsingAndMeta_fileBuffers          = {[virtualPathIn]=luaUnprocessed} -- Doesn't have to be the contents of files if params.onInsert() is defined.
 	current_parsingAndMeta_onInsert             = params.onInsert
 	current_parsingAndMeta_addLineNumbers       = params.addLineNumbers
+	current_parsingAndMeta_macroPrefix          = params.macroPrefix or ""
+	current_parsingAndMeta_macroSuffix          = params.macroSuffix or ""
 	current_parsingAndMeta_strictMacroArguments = params.strictMacroArguments ~= false
 	current_meta_locationTokens                 = {}
 
@@ -3654,6 +3673,8 @@ local function _processFileOrString(params, isFile)
 	current_parsingAndMeta_fileBuffers          = nil
 	current_parsingAndMeta_onInsert             = nil
 	current_parsingAndMeta_addLineNumbers       = false
+	current_parsingAndMeta_macroPrefix          = ""
+	current_parsingAndMeta_macroSuffix          = ""
 	current_parsingAndMeta_strictMacroArguments = true
 
 	if isFile then
@@ -3712,6 +3733,8 @@ local function processFileOrString(params, isFile)
 	current_parsingAndMeta_onInsert             = nil
 	current_parsingAndMeta_fileBuffers          = nil
 	current_parsingAndMeta_addLineNumbers       = false
+	current_parsingAndMeta_macroPrefix          = ""
+	current_parsingAndMeta_macroSuffix          = ""
 	current_parsingAndMeta_strictMacroArguments = true
 	current_meta_pathForErrorMessages           = ""
 	current_meta_outputStack                    = nil
