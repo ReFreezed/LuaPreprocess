@@ -199,20 +199,22 @@ local dummyEnv = {}
 local current_parsingAndMeta_isDebug = false
 
 -- Controlled by _processFileOrString():
-local current_anytime_isRunningMeta         = false
-local current_anytime_pathIn                = ""
-local current_anytime_pathOut               = ""
-local current_anytime_fastStrings           = false
-local current_parsing_insertCount           = 0
-local current_parsingAndMeta_onInsert       = nil
-local current_parsingAndMeta_fileBuffers    = nil
-local current_parsingAndMeta_addLineNumbers = false
-local current_meta_pathForErrorMessages     = ""
-local current_meta_outputStack              = nil
-local current_meta_output                   = nil -- Top item in current_meta_outputStack.
-local current_meta_canOutputNil             = true
-local current_meta_releaseMode              = false
-local current_meta_maxLogLevel              = "trace"
+local current_anytime_isRunningMeta               = false
+local current_anytime_pathIn                      = ""
+local current_anytime_pathOut                     = ""
+local current_anytime_fastStrings                 = false
+local current_parsing_insertCount                 = 0
+local current_parsingAndMeta_onInsert             = nil
+local current_parsingAndMeta_fileBuffers          = nil
+local current_parsingAndMeta_addLineNumbers       = false
+local current_parsingAndMeta_strictMacroArguments = true
+local current_meta_pathForErrorMessages           = ""
+local current_meta_outputStack                    = nil
+local current_meta_output                         = nil -- Top item in current_meta_outputStack.
+local current_meta_canOutputNil                   = true
+local current_meta_releaseMode                    = false
+local current_meta_maxLogLevel                    = "trace"
+local current_meta_locationTokens                 = nil
 
 
 
@@ -272,10 +274,10 @@ local function printfError(s, ...)
 	printError(F(s, ...))
 end
 
--- printErrorTraceback( message [, level=1 ] )
-local function printErrorTraceback(message, level)
-	printError(tryToFormatError(message))
-	printError("stack traceback:")
+-- message = formatTraceback( [ level=1 ] )
+local function formatTraceback(level)
+	local buffer = {}
+	tableInsert(buffer, "stack traceback:\n")
 
 	level       = 1 + (level or 1)
 	local stack = {}
@@ -287,24 +289,24 @@ local function printErrorTraceback(message, level)
 		local isFile     = info.source:find"^@" ~= nil
 		local sourceName = (isFile and info.source:sub(2) or info.short_src)
 
-		local buffer = {"\t"}
-		tableInsertFormat(buffer, "%s:", sourceName)
+		local subBuffer = {"\t"}
+		tableInsertFormat(subBuffer, "%s:", sourceName)
 
 		if info.currentline > 0 then
-			tableInsertFormat(buffer, "%d:", info.currentline)
+			tableInsertFormat(subBuffer, "%d:", info.currentline)
 		end
 
 		if (info.name or "") ~= "" then
-			tableInsertFormat(buffer, " in '%s'", info.name)
+			tableInsertFormat(subBuffer, " in '%s'", info.name)
 		elseif info.what == "main" then
-			tableInsert(buffer, " in main chunk")
+			tableInsert(subBuffer, " in main chunk")
 		elseif info.what == "C" or info.what == "tail" then
-			tableInsert(buffer, " ?")
+			tableInsert(subBuffer, " ?")
 		else
-			tableInsertFormat(buffer, " in <%s:%d>", sourceName:gsub("^.*[/\\]", ""), info.linedefined)
+			tableInsertFormat(subBuffer, " in <%s:%d>", sourceName:gsub("^.*[/\\]", ""), info.linedefined)
 		end
 
-		tableInsert(stack, table.concat(buffer))
+		tableInsert(stack, table.concat(subBuffer))
 		level = level + 1
 	end
 
@@ -313,8 +315,17 @@ local function printErrorTraceback(message, level)
 	end
 
 	for _, s in ipairs(stack) do
-		printError(s)
+		tableInsert(buffer, s)
+		tableInsert(buffer, "\n")
 	end
+
+	return table.concat(buffer)
+end
+
+-- printErrorTraceback( message [, level=1 ] )
+local function printErrorTraceback(message, level)
+	printError(tryToFormatError(message))
+	printError(formatTraceback(1+(level or 1)))
 end
 
 -- debugExit( )
@@ -358,7 +369,7 @@ local function errorOnLine(path, ln, agent, s, ...)
 	end
 end
 
-local errorInFile
+local errorInFile, runtimeErrorInFile
 do
 	local function findStartOfLine(s, pos, canBeEmpty)
 		while pos > 1 do
@@ -375,7 +386,7 @@ do
 		return math.min(pos, #s)
 	end
 
-	--[[local]] function errorInFile(contents, path, pos, agent, s, ...)
+	local function _errorInFile(level, contents, path, pos, agent, s, ...)
 		s = F(s, ...)
 
 		pos      = math.min(math.max(pos, 1), #contents+1)
@@ -389,13 +400,24 @@ do
 		local linePre2End   = findEndOfLine  (contents, linePre2Start-1)
 		-- printfError("pos %d | lines %d..%d, %d..%d, %d..%d", pos, linePre2Start,linePre2End+1, linePre1Start,linePre1End+1, lineStart,lineEnd+1) -- DEBUG
 
-		errorOnLine(path, ln, agent, "%s\n>\n%s%s%s>-%s^",
+		errorOnLine(path, ln, agent, "%s\n>\n%s%s%s>-%s^%s",
 			s,
 			(linePre2Start < linePre1Start and linePre2Start <= linePre2End) and F("> %s\n", (contents:sub(linePre2Start, linePre2End):gsub("\t", "    "))) or "",
 			(linePre1Start < lineStart     and linePre1Start <= linePre1End) and F("> %s\n", (contents:sub(linePre1Start, linePre1End):gsub("\t", "    "))) or "",
 			(                                  lineStart     <= lineEnd    ) and F("> %s\n", (contents:sub(lineStart,     lineEnd    ):gsub("\t", "    "))) or ">\n",
-			("-"):rep(pos - lineStart + 3*countSubString(contents, lineStart, lineEnd, "\t", true))
+			("-"):rep(pos - lineStart + 3*countSubString(contents, lineStart, lineEnd, "\t", true)),
+			(level and "\n"..formatTraceback(1+level) or "")
 		)
+	end
+
+	-- errorInFile( contents, path, pos, agent, s, ... )
+	--[[local]] function errorInFile(...)
+		_errorInFile(nil, ...)
+	end
+
+	-- runtimeErrorInFile( level, contents, path, pos, agent, s, ... )
+	--[[local]] function runtimeErrorInFile(level, ...)
+		_errorInFile(1+level, ...)
 	end
 end
 
@@ -409,6 +431,18 @@ end
 local function errorAfterToken(tok, agent, s, ...)
 	-- printErrorTraceback("errorAfterToken", 2) -- DEBUG
 	errorInFile(current_parsingAndMeta_fileBuffers[tok.file], tok.file, tok.position+#tok.representation, agent, s, ...)
+end
+
+-- runtimeErrorAtToken( level, token, position=token.position, agent, s, ... )
+local function runtimeErrorAtToken(level, tok, pos, agent, s, ...)
+	-- printErrorTraceback("errorAtToken", 2) -- DEBUG
+	runtimeErrorInFile(1+level, current_parsingAndMeta_fileBuffers[tok.file], tok.file, (pos or tok.position), agent, s, ...)
+end
+
+-- internalError( [ message|value ] )
+local function internalError(message)
+	message = message and " ("..tostring(message)..")" or ""
+	error("Internal error."..message, 2)
 end
 
 
@@ -641,7 +675,7 @@ local function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitS
 
 			if tok.long then
 				-- Check for nesting of [[...]], which is deprecated in Lua.
-				local chunk, err = loadLuaString("--"..tok.representation, "@")
+				local chunk, err = loadLuaString("--"..tok.representation, "@", nil)
 
 				if not chunk then
 					local lnInString, luaErr = err:match'^:(%d+): (.*)'
@@ -698,7 +732,7 @@ local function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitS
 
 			local repr = s:sub(reprStart, reprEnd)
 
-			local valueChunk = loadLuaString("return"..repr)
+			local valueChunk = loadLuaString("return"..repr, nil, nil)
 			if not valueChunk then
 				errorInFile(s, path, reprStart, "Tokenizer", "Malformed string.")
 			end
@@ -723,7 +757,7 @@ local function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitS
 			end
 
 			-- Check for nesting of [[...]], which is deprecated in Lua.
-			local valueChunk, err = loadLuaString("return"..tok.representation, "@")
+			local valueChunk, err = loadLuaString("return"..tok.representation, "@", nil)
 
 			if not valueChunk then
 				local lnInString, luaErr = err:match'^:(%d+): (.*)'
@@ -1096,7 +1130,7 @@ local function serialize(buffer, v)
 			-- print(">> FAST", #v) -- DEBUG
 
 			local s = v:gsub((useApostrophe and "[\t\n\\']" or '[\t\n\\"]'), function(c)
-				return ESCAPE_SEQUENCES[c] or errorf("Internal error. (%d)", c:byte())
+				return ESCAPE_SEQUENCES[c] or internalError(c:byte())
 			end)
 			tableInsert(buffer, s)
 
@@ -1163,14 +1197,10 @@ end
 
 -- value = evaluate( expression [, environment=getfenv() ] )
 -- Returns nil and a message on error.
-local function evaluate(expression, env)
-	local chunk, err = loadLuaString("return "..expression, "@<evaluate>", (env or getfenv(2)))
+local function evaluate(expr, env)
+	local chunk, err = loadLuaString("return("..expr.."\n)", "@<evaluate>", (env or getfenv(2)))
 	if not chunk then
-		return nil, F("Invalid expression '%s'. (%s)", expression, (err:gsub("^:%d+: ", "")))
-	end
-
-	if expression:find(",", 1, true) and not loadLuaString("return("..expression.."\n)", "@") then
-		return nil, F("Ambiguous expression '%s'. (Comma-separated list?)", expression)
+		return nil, F("Invalid expression '%s'. (%s)", expr, (err:gsub("^:%d+: ", "")))
 	end
 
 	local ok, valueOrErr = pcall(chunk)
@@ -2241,7 +2271,7 @@ function metaFuncs.LOG(logLevelCode, valueOrFormatCode, ...)
 	if not logLevelCode      then  error("missing argument #1 to 'LOG'", 2)  end
 	if not valueOrFormatCode then  error("missing argument #2 to 'LOG'", 2)  end
 
-	local chunk = loadLuaString("return _,"..logLevelCode, "@", dummyEnv)
+	local chunk = loadLuaString("return 0,"..logLevelCode, "@", dummyEnv)
 	if not chunk then  errorf(2, "Invalid logLevel expression. Got: %s", logLevelCode)  end
 
 	local ok, _, logLevel = pcall(chunk)
@@ -2307,10 +2337,27 @@ function metaEnv.__M()
 	return finalizeMacro
 end
 
-function metaEnv.__ARG(cb) -- For complex macro arguments.
-	metaFuncs.startInterceptingOutput()
-	cb()
-	return (_stopInterceptingOutput(2))
+local function isLuaStringValidExpression(lua)
+	return loadLuaString("return("..lua.."\n)", "@", nil) ~= nil
+end
+
+-- luaString = __ARG( locationTokenNumber, luaString|callback )
+-- callback  = function( )
+function metaEnv.__ARG(locTokNum, v)
+	local lua
+	if type(v) == "string" then
+		lua = v
+	else
+		metaFuncs.startInterceptingOutput()
+		v()
+		lua = _stopInterceptingOutput(2)
+	end
+
+	if current_parsingAndMeta_strictMacroArguments and not isLuaStringValidExpression(lua) then
+		runtimeErrorAtToken(2, current_meta_locationTokens[locTokNum], nil, "MacroArgument", "Result is not a valid Lua expression: %s", lua)
+	end
+
+	return lua
 end
 
 function metaEnv.__EVAL(v) -- For symbols.
@@ -2671,14 +2718,14 @@ local function astParseMetaBlock(tokens)
 	end
 
 	local lua          = _concatTokens(outTokens, nil, false, nil, nil)
-	local chunk, err   = loadLuaString("return 0,"..lua.."\n,0", "@")
+	local chunk, err   = loadLuaString("return 0,"..lua.."\n,0", "@", nil)
 	local isExpression = (chunk ~= nil)
 
 	if not isExpression and ppEntryTok.double then
 		errorAtToken(tokens[ppEntryTokIndex+1], nil, "Parser/MetaBlock", "Invalid expression in preprocessor block.")
 		-- err = err:gsub("^:%d+: ", "")
 		-- errorAtToken(tokens[ppEntryTokIndex+1], nil, "Parser/MetaBlock", "Invalid expression in preprocessor block. (%s)", err)
-	elseif isExpression and not loadLuaString("return("..lua.."\n)", "@") then
+	elseif isExpression and not isLuaStringValidExpression(lua) then
 		if #lua > 100 then
 			lua = lua:sub(1, 50) .. "..." .. lua:sub(-50)
 		end
@@ -2931,7 +2978,7 @@ local function astParseMacro(params, tokens)
 			local tok = tokens[tokens.nextI]
 
 			if not tok then
-				errorAtToken(macroArg.locationToken, nil, "Parser/Macro", "Could not find end of table constructor before EOF.")
+				errorAtToken(macroArg.locationToken, nil, "Parser/MacroArgument", "Could not find end of table constructor before EOF.")
 
 			-- Preprocessor block in macro.
 			elseif tok.type == "pp_entry" then
@@ -2945,7 +2992,7 @@ local function astParseMacro(params, tokens)
 
 			-- Other preprocessor code in macro. (Not sure we ever get here.)
 			elseif tok.type:find"^pp_" then
-				errorAtToken(tok, nil, "Parser/Macro", "Unsupported preprocessor code. (Macro starts %s)", getRelativeLocationText(macroStartTok, tok))
+				errorAtToken(tok, nil, "Parser/MacroArgument", "Unsupported preprocessor code. (Macro starts %s)", getRelativeLocationText(macroStartTok, tok))
 
 			-- End of table and argument.
 			elseif bracketDepth == 1 and isToken(tok, "punctuation", "}") then
@@ -2976,7 +3023,7 @@ local function astParseMacro(params, tokens)
 
 	-- @insert identifier ( argument1, ... )
 	elseif isTokenAndNotNil(tokNext, "punctuation", "(") then
-		-- Apply the same 'ambiguous syntax' rule as Lua. (Will comments mess this check up?)
+		-- Apply the same 'ambiguous syntax' rule as Lua. (Will comments mess this check up? @Check)
 		if isTokenAndNotNil(tokens[iNext-1], "whitespace") and tokens[iNext-1].value:find("\n", 1, true) then
 			errorAtToken(tokNext, nil, "Parser/Macro", "Ambiguous syntax near '(' - part of macro, or new statement?")
 		end
@@ -3018,7 +3065,7 @@ local function astParseMacro(params, tokens)
 
 					-- Other preprocessor code in macro. (Not sure we ever get here.)
 					elseif tok.type:find"^pp_" then
-						errorAtToken(tok, nil, "Parser/Macro", "Unsupported preprocessor code. (Macro starts %s)", getRelativeLocationText(macroStartTok, tok))
+						errorAtToken(tok, nil, "Parser/MacroArgument", "Unsupported preprocessor code. (Macro starts %s)", getRelativeLocationText(macroStartTok, tok))
 
 					-- End of argument.
 					elseif not depthStack[1] and (isToken(tok, "punctuation", ",") or isToken(tok, "punctuation", ")")) then
@@ -3045,11 +3092,11 @@ local function astParseMacro(params, tokens)
 							isToken(tok, "keyword",     "until")
 						then
 							if not depthStack[1] then
-								errorAtToken(tok, nil, "Parser/Macro", "Unexpected '%s'.", tok.value)
+								errorAtToken(tok, nil, "Parser/MacroArgument", "Unexpected '%s'.", tok.value)
 							elseif not isToken(tok, unpack(depthStack[#depthStack])) then
 								local startTok = depthStack[#depthStack].startToken
 								errorAtToken(
-									tok, nil, "Parser/Macro", "Expected '%s' (to close '%s' %s) but got '%s'.",
+									tok, nil, "Parser/MacroArgument", "Expected '%s' (to close '%s' %s) but got '%s'.",
 									depthStack[#depthStack][2], startTok.value, getRelativeLocationText(startTok, tok), tok.value
 								)
 							end
@@ -3073,9 +3120,9 @@ local function astParseMacro(params, tokens)
 					end
 				end
 
-				if not macroArg.nodes[1] then
+				if not macroArg.nodes[1] and current_parsingAndMeta_strictMacroArguments then
 					-- There were no useful tokens for the argument!
-					errorAtToken(macroArg.locationToken, nil, "Parser/Macro", "Expected argument #%d.", argNum)
+					errorAtToken(macroArg.locationToken, nil, "Parser/MacroArgument", "Expected argument #%d.", argNum)
 				end
 
 				-- Do next argument or finish arguments.
@@ -3206,7 +3253,7 @@ local function astNodeToMetaprogram(buffer, ast, ln, lnMeta, asMacroArgExpr)
 	-- !statements   -> statements
 	--
 	elseif ast.type == "metaprogram" then
-		if asMacroArgExpr then  errorf("Internal error. (%s)", ast.type)  end
+		if asMacroArgExpr then  internalError(ast.type)  end
 
 		if ast.originIsLine then
 			for i = 1, #ast.tokens-1 do
@@ -3233,8 +3280,8 @@ local function astNodeToMetaprogram(buffer, ast, ln, lnMeta, asMacroArgExpr)
 		end
 
 	--
-	-- @@callee(argument1, ...) -> __LUA(__M(callee(<argument1>, ...)))
-	--                       OR -> __LUA(__M(callee(__ARG(function() <argument1> ... end))))
+	-- @@callee(argument1, ...) -> __LUA(__M(callee(__ARG(1,<argument1>), ...)))
+	--                       OR -> __LUA(__M(callee(__ARG(1,function()<argument1>end), ...)))
 	--
 	-- The code handling each argument will be different depending on the complexity of the argument.
 	--
@@ -3262,19 +3309,31 @@ local function astNodeToMetaprogram(buffer, ast, ln, lnMeta, asMacroArgExpr)
 				if current_parsingAndMeta_isDebug then  tableInsert(buffer, " ")  end
 			end
 
+			local locTokNum                        = #current_meta_locationTokens + 1
+			current_meta_locationTokens[locTokNum] = macroArg.nodes[1] and macroArg.nodes[1].locationToken or macroArg.locationToken or internalError()
+
+			tableInsert(buffer, "__ARG(")
+			tableInsert(buffer, tostring(locTokNum))
+			tableInsert(buffer, ",")
+
 			if argIsComplex then
-				tableInsert(buffer, "__ARG(function()\n")
+				tableInsert(buffer, "function()\n")
 				for nodeNumInArg, astInArg in ipairs(macroArg.nodes) do
 					ln, lnMeta = astNodeToMetaprogram(buffer, astInArg, ln, lnMeta, false)
 				end
-				tableInsert(buffer, "end)")
+				tableInsert(buffer, "end")
 
-			else
+			elseif macroArg.nodes[1] then
 				for nodeNumInArg, astInArg in ipairs(macroArg.nodes) do
 					if nodeNumInArg > 1 then  tableInsert(buffer, "..")  end
 					ln, lnMeta = astNodeToMetaprogram(buffer, astInArg, ln, lnMeta, true)
 				end
+
+			else
+				tableInsert(buffer, '""')
 			end
+
+			tableInsert(buffer, ")")
 		end
 
 		tableInsert(buffer, "))")
@@ -3286,7 +3345,7 @@ local function astNodeToMetaprogram(buffer, ast, ln, lnMeta, asMacroArgExpr)
 	-- !!      names = values ->       names = values ;       __LUA"names = "__VAL(name1)__LUA", "__VAL(name2)...
 	--
 	elseif ast.type == "dualCode" then
-		if asMacroArgExpr then  errorf("Internal error. (%s)", ast.type)  end
+		if asMacroArgExpr then  internalError(ast.type)  end
 
 		-- Metaprogram.
 		if ast.isDeclaration then  tableInsert(buffer, "local ")  end
@@ -3397,11 +3456,13 @@ local function _processFileOrString(params, isFile)
 		luaUnprocessed = params.code
 	end
 
-	current_anytime_fastStrings           = params.fastStrings
-	current_parsing_insertCount           = 0
-	current_parsingAndMeta_fileBuffers    = {[virtualPathIn]=luaUnprocessed} -- Doesn't have to be the contents of files if params.onInsert() is defined.
-	current_parsingAndMeta_onInsert       = params.onInsert
-	current_parsingAndMeta_addLineNumbers = params.addLineNumbers
+	current_anytime_fastStrings                 = params.fastStrings
+	current_parsing_insertCount                 = 0
+	current_parsingAndMeta_fileBuffers          = {[virtualPathIn]=luaUnprocessed} -- Doesn't have to be the contents of files if params.onInsert() is defined.
+	current_parsingAndMeta_onInsert             = params.onInsert
+	current_parsingAndMeta_addLineNumbers       = params.addLineNumbers
+	current_parsingAndMeta_strictMacroArguments = params.strictMacroArguments ~= false
+	current_meta_locationTokens                 = {}
 
 	local specialFirstLine, rest = luaUnprocessed:match"^(#[^\r\n]*\r?\n?)(.*)$"
 	if specialFirstLine then
@@ -3507,6 +3568,7 @@ local function _processFileOrString(params, isFile)
 	current_meta_canOutputNil         = true
 	current_meta_releaseMode          = false
 	current_meta_maxLogLevel          = "trace"
+	current_meta_locationTokens       = nil
 
 	if params.onAfterMeta then
 		local luaModified = params.onAfterMeta(lua)
@@ -3538,7 +3600,7 @@ local function _processFileOrString(params, isFile)
 	-- Check if the output is valid Lua.
 	if params.validate ~= false then
 		local luaToCheck = lua:gsub("^#![^\n]*", "")
-		local chunk, err = loadLuaString(luaToCheck, "@"..pathOut)
+		local chunk, err = loadLuaString(luaToCheck, "@"..pathOut, nil)
 
 		if not chunk then
 			local ln, _err = err:match"^.-:(%d+): (.*)"
@@ -3561,12 +3623,13 @@ local function _processFileOrString(params, isFile)
 
 	if params.onDone then  params.onDone(info)  end
 
-	current_anytime_pathIn                = ""
-	current_anytime_pathOut               = ""
-	current_anytime_fastStrings           = false
-	current_parsingAndMeta_fileBuffers    = nil
-	current_parsingAndMeta_onInsert       = nil
-	current_parsingAndMeta_addLineNumbers = false
+	current_anytime_pathIn                      = ""
+	current_anytime_pathOut                     = ""
+	current_anytime_fastStrings                 = false
+	current_parsingAndMeta_fileBuffers          = nil
+	current_parsingAndMeta_onInsert             = nil
+	current_parsingAndMeta_addLineNumbers       = false
+	current_parsingAndMeta_strictMacroArguments = true
 
 	if isFile then
 		return info
@@ -3609,20 +3672,22 @@ local function processFileOrString(params, isFile)
 	current_parsingAndMeta_isDebug = false
 
 	-- Cleanup in case an error happened.
-	current_anytime_isRunningMeta         = false
-	current_anytime_pathIn                = ""
-	current_anytime_pathOut               = ""
-	current_anytime_fastStrings           = false
-	current_parsing_insertCount           = 0
-	current_parsingAndMeta_onInsert       = nil
-	current_parsingAndMeta_fileBuffers    = nil
-	current_parsingAndMeta_addLineNumbers = false
-	current_meta_pathForErrorMessages     = ""
-	current_meta_outputStack              = nil
-	current_meta_output                   = nil
-	current_meta_canOutputNil             = true
-	current_meta_releaseMode              = false
-	current_meta_maxLogLevel              = "trace"
+	current_anytime_isRunningMeta               = false
+	current_anytime_pathIn                      = ""
+	current_anytime_pathOut                     = ""
+	current_anytime_fastStrings                 = false
+	current_parsing_insertCount                 = 0
+	current_parsingAndMeta_onInsert             = nil
+	current_parsingAndMeta_fileBuffers          = nil
+	current_parsingAndMeta_addLineNumbers       = false
+	current_parsingAndMeta_strictMacroArguments = true
+	current_meta_pathForErrorMessages           = ""
+	current_meta_outputStack                    = nil
+	current_meta_output                         = nil
+	current_meta_canOutputNil                   = true
+	current_meta_releaseMode                    = false
+	current_meta_maxLogLevel                    = "trace"
+	current_meta_locationTokens                 = nil
 
 	-- print("time", os.clock()-startTime) -- DEBUG
 	if xpcallOk then
@@ -3657,29 +3722,30 @@ local pp = {
 	-- info: Table with various information. (See 'ProcessInfo' for more info.)
 	--
 	-- params: Table with these fields:
-	--   pathIn          = pathToInputFile       -- [Required] Specify "-" to use stdin.
-	--   pathOut         = pathToOutputFile      -- [Required] Specify "-" to use stdout. (Note that if stdout is used then anything you print() in the metaprogram will end up there.)
-	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error occurs in the metaprogram.
+	--   pathIn               = pathToInputFile       -- [Required] Specify "-" to use stdin.
+	--   pathOut              = pathToOutputFile      -- [Required] Specify "-" to use stdout. (Note that if stdout is used then anything you print() in the metaprogram will end up there.)
+	--   pathMeta             = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error occurs in the metaprogram.
 	--
-	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
-	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
+	--   debug                = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers       = boolean               -- [Optional] Add comments with line numbers to the output.
 	--
-	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
-	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
-	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
-	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
-	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
+	--   backtickStrings      = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
+	--   jitSyntax            = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
+	--   canOutputNil         = boolean               -- [Optional] Allow !(expression) and outputValue() to output nil. (Default: true)
+	--   fastStrings          = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
+	--   validate             = boolean               -- [Optional] Validate output. (Default: true)
+	--   strictMacroArguments = boolean               -- [Optional] Check that macro arguments are valid Lua expressions. (Default: true)
 	--
-	--   macroPrefix     = prefix                -- [Optional] String to prepend to macro names. (Default: "")
-	--   macroSuffix     = suffix                -- [Optional] String to append  to macro names. (Default: "")
+	--   macroPrefix          = prefix                -- [Optional] String to prepend to macro names. (Default: "")
+	--   macroSuffix          = suffix                -- [Optional] String to append  to macro names. (Default: "")
 	--
-	--   release         = boolean               -- [Optional] Enable release mode. Currently only disables the @@ASSERT() macro when true. (Default: false)
-	--   logLevel        = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
+	--   release              = boolean               -- [Optional] Enable release mode. Currently only disables the @@ASSERT() macro when true. (Default: false)
+	--   logLevel             = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
-	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
-	--   onAfterMeta     = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
-	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
+	--   onInsert             = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
+	--   onBeforeMeta         = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onAfterMeta          = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
+	--   onError              = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
 	--
 	processFile = processFile,
 
@@ -3690,27 +3756,28 @@ local pp = {
 	-- info: Table with various information. (See 'ProcessInfo' for more info.)
 	--
 	-- params: Table with these fields:
-	--   code            = luaString             -- [Required]
-	--   pathMeta        = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error occurs in the metaprogram.
+	--   code                 = luaString             -- [Required]
+	--   pathMeta             = pathForMetaprogram    -- [Optional] You can inspect this temporary output file if an error occurs in the metaprogram.
 	--
-	--   debug           = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
-	--   addLineNumbers  = boolean               -- [Optional] Add comments with line numbers to the output.
+	--   debug                = boolean               -- [Optional] Debug mode. The metaprogram file is formatted more nicely and does not get deleted automatically.
+	--   addLineNumbers       = boolean               -- [Optional] Add comments with line numbers to the output.
 	--
-	--   backtickStrings = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
-	--   jitSyntax       = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
-	--   canOutputNil    = boolean               -- [Optional] Allow !() and outputValue() to output nil. (Default: true)
-	--   fastStrings     = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
-	--   validate        = boolean               -- [Optional] Validate output. (Default: true)
+	--   backtickStrings      = boolean               -- [Optional] Enable the backtick (`) to be used as string literal delimiters. Backtick strings don't interpret any escape sequences and can't contain other backticks. (Default: false)
+	--   jitSyntax            = boolean               -- [Optional] Allow LuaJIT-specific syntax. (Default: false)
+	--   canOutputNil         = boolean               -- [Optional] Allow !(expression) and outputValue() to output nil. (Default: true)
+	--   fastStrings          = boolean               -- [Optional] Force fast serialization of string values. (Non-ASCII characters will look ugly.) (Default: false)
+	--   validate             = boolean               -- [Optional] Validate output. (Default: true)
+	--   strictMacroArguments = boolean               -- [Optional] Check that macro arguments are valid Lua expressions. (Default: true)
 	--
-	--   macroPrefix     = prefix                -- [Optional] String to prepend to macro names. (Default: "")
-	--   macroSuffix     = suffix                -- [Optional] String to append  to macro names. (Default: "")
+	--   macroPrefix          = prefix                -- [Optional] String to prepend to macro names. (Default: "")
+	--   macroSuffix          = suffix                -- [Optional] String to append  to macro names. (Default: "")
 	--
-	--   release         = boolean               -- [Optional] Enable release mode. Currently only disables the @@ASSERT() macro when true. (Default: false)
-	--   logLevel        = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
+	--   release              = boolean               -- [Optional] Enable release mode. Currently only disables the @@ASSERT() macro when true. (Default: false)
+	--   logLevel             = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
 	--
-	--   onInsert        = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
-	--   onBeforeMeta    = function( )           -- [Optional] Called before the metaprogram runs.
-	--   onError         = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
+	--   onInsert             = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
+	--   onBeforeMeta         = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onError              = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--
 	processString = processString,
 

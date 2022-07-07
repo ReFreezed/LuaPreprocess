@@ -24,6 +24,7 @@ REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --data="Hello, w
 REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --data="Hello, world!" tests/quickTest.lua2p --linenumbers || EXIT /B 1
 REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --data="Hello, world!" tests/quickTest.lua2p --release || EXIT /B 1
 REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --data="Hello, world!" tests/quickTest.lua2p --loglevel=warning || EXIT /B 1
+REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --data="Hello, world!" tests/quickTest.lua2p --nostrictmacroarguments || EXIT /B 1
 
 REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --data="Hello, world!" --outputpaths tests/quickTest.lua2p temp/quickTest.output.lua || EXIT /B 1
 REM %_lua% ./preprocess-cl.lua --debug --saveinfo=temp/info.lua --data="Hello, world!" --outputpaths tests/quickTest.lua2p temp/quickTest.output.lua --linenumbers || EXIT /B 1

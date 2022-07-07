@@ -419,12 +419,20 @@ doTest("Macros", function()
 		@@FOO()
 	]]})
 
-	-- Invalid code in arguments (which is ok).
-	local luaOut = assert(pp.processString{ code=[[
+	-- Non-strict macro arguments.
+	local code = [[
 		!function BINOP(operator, a, b)  return a..operator..b  end
 		v = @@BINOP(^, 3, 2)
-	]]})
-	assertCodeOutput(luaOut, [[v = 3^2]])
+	]]
+	assertCodeOutput(assert(    pp.processString{ strictMacroArguments=false, code=code}), [[v = 3^2]])
+	assert                 (not pp.processString{ strictMacroArguments=true , code=code})
+
+	local code = [[
+		!function ECHO3(a,b,c)  return a..b..c  end
+		foo @@ECHO3( ,--[=[]=](),)
+	]]
+	assertCodeOutput(assert(    pp.processString{ strictMacroArguments=false, code=code}), [[foo ()]])
+	assert                 (not pp.processString{ strictMacroArguments=true , code=code})
 
 	-- Invalid: Ambiguous syntax.
 	assert(not pp.processString{ code=[[
@@ -659,6 +667,10 @@ doTest("Resources and evaluation", function()
 	_G.   x = 8 ; assert(pp.evaluate("2^x"       ) == 2^x) ; _G.x = nil
 	local x = 8 ; assert(pp.evaluate("2^x", {x=x}) == 2^x)
 	assert(not pp.evaluate("2^x")) -- (Global) x should be nil.
+
+	local v, err = pp.evaluate("")
+	assert(not v)
+	assert(err)
 
 	if jit then
 		assert(         assert(pp.evaluate"0b101"   )  == 5)

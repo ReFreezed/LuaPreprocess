@@ -114,16 +114,22 @@ local ok = 1==1
 -- @insert MY_ASSERT ( , ok ) -- Syntax error!
 -- @insert MY_ASSERT ( --[[]] , ok ) -- Syntax error!
 
-!local function PASS_THROUGH(lua, lua2)  return lua..(lua2 and ","..lua2 or "")  end
+!(
+local function PASS_THROUGH(lua, lua2)
+	if (lua2 or "") ~= "" then  lua = lua..","..lua2  end
+	return lua
+end
+)
 local s = @insert PASS_THROUGH "foo"
 local t = @@      PASS_THROUGH { 496, b=true } -- @@ means the same as @insert.
 
--- local s = @@PASS_THROUGH `foo`
+-- local s = @@PASS_THROUGH `foo` -- Enable: Backtick strings.
+-- local n = os.time @@PASS_THROUGH(() , ) -- Disable: Strict macro arguments.
 
 local f = @@PASS_THROUGH(function(a, b)
 	while true do
 		repeat until arePlanetsAligned("mars", "jupiter")
-		-- repeat until arePlanetsAligned(`mars`, `jupiter`)
+		-- repeat until arePlanetsAligned(`mars`, `jupiter`) -- Enable: Backtick strings.
 		break
 	end
 	return "", nil

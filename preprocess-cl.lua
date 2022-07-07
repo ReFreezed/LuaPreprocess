@@ -60,7 +60,7 @@ Options:
 
 	--jitsyntax
 		Allow LuaJIT-specific syntax, specifically literals for 64-bit
-		integers and complex numbers.
+		integers, complex numbers and binary numbers.
 		(https://luajit.org/ext_ffi_api.html#literals)
 
 	--linenumbers
@@ -86,7 +86,10 @@ Options:
 		Stop the garbage collector. This may speed up the preprocessing.
 
 	--nonil
-		Disallow !(...) and outputValue(...) from outputting nil.
+		Disallow !(expression) and outputValue() from outputting nil.
+
+	--nostrictmacroarguments
+		Disable checks that macro arguments are valid Lua expressions.
 
 	--novalidate
 		Disable validation of outputted Lua.
@@ -178,20 +181,6 @@ local startClock = os.clock()
 
 local args = arg
 
-local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
-if not major then
-	io.stderr:write("[LuaPreprocess] Warning: Could not detect Lua version.\n")
-else
-	major = tonumber(major)
-	minor = tonumber(minor)
-end
-local IS_LUA_51          = (major == 5 and minor == 1)
-local IS_LUA_52          = (major == 5 and minor == 2)
-local IS_LUA_53          = (major == 5 and minor == 3)
-local IS_LUA_51_OR_LATER = (major == 5 and minor >= 1) or (major ~= nil and major > 5)
-local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
-local IS_LUA_53_OR_LATER = (major == 5 and minor >= 3) or (major ~= nil and major > 5)
-
 if not args[0] then  error("Expected to run from the Lua interpreter.")  end
 local pp = dofile((args[0]:gsub("[^/\\]+$", "preprocess.lua")))
 
@@ -214,17 +203,14 @@ local macroPrefix          = ""
 local macroSuffix          = ""
 local releaseMode          = false
 local maxLogLevel          = "trace"
+local strictMacroArguments = true
 
 --==============================================================
---= Local Functions ============================================
+--= Local functions ============================================
 --==============================================================
-local errorLine
-local F, formatBytes, formatInt
-local loadLuaFile
-local printf, printfNoise, printError, printfError
+local F = string.format
 
-F = string.format
-function formatBytes(n)
+local function formatBytes(n)
 	if     n >= 1024*1024*1024 then
 		return F("%.2f GiB", n/(1024*1024*1024))
 	elseif n >= 1024*1024 then
@@ -237,38 +223,27 @@ function formatBytes(n)
 		return F("%d bytes", n)
 	end
 end
--- function formatInt(n)
--- 	return
--- 		F("%.0f", n)
--- 		:reverse()
--- 		:gsub("%d%d%d", "%0,")
--- 		:gsub(",$", ""):gsub(",%-$", "-")
--- 		:reverse()
--- end
 
-function printf(s, ...)
+local function printfNoise(s, ...)
 	print(s:format(...))
 end
-printfNoise = printf
-
-function printError(s)
+local function printError(s)
 	io.stderr:write(s, "\n")
 end
-function printfError(s, ...)
+local function printfError(s, ...)
 	io.stderr:write(s:format(...), "\n")
 end
 
-function errorLine(err)
+local function errorLine(err)
 	printError(pp.tryToFormatError(err))
 	os.exit(1)
 end
 
-if IS_LUA_52_OR_LATER then
-	function loadLuaFile(path, env)
+local loadLuaFile = (
+	(_VERSION >= "Lua 5.2" or jit) and function(path, env)
 		return loadfile(path, "bt", env)
 	end
-else
-	function loadLuaFile(path, env)
+	or function(path, env)
 		local mainChunk, err = loadfile(path)
 		if not mainChunk then  return mainChunk, err  end
 
@@ -276,10 +251,10 @@ else
 
 		return mainChunk
 	end
-end
+)
 
 --==============================================================
---= Preprocessor Script ========================================
+--= Preprocessor script ========================================
 --==============================================================
 
 io.stdout:setvbuf("no")
@@ -382,6 +357,9 @@ for _, arg in ipairs(args) do
 	elseif arg == "--version" then
 		io.stdout:write(pp.VERSION)
 		os.exit()
+
+	elseif arg == "--nostrictmacroarguments" then
+		strictMacroArguments = false
 
 	else
 		errorLine("Unknown option '"..arg:gsub("=.*", "").."'.")
@@ -529,24 +507,25 @@ for i, pathIn in ipairs(pathsIn) do
 	end
 
 	local info, err = pp.processFile{
-		pathIn          = pathIn,
-		pathMeta        = pathMeta,
-		pathOut         = pathOut,
+		pathIn               = pathIn,
+		pathMeta             = pathMeta,
+		pathOut              = pathOut,
 
-		debug           = isDebug,
-		addLineNumbers  = addLineNumbers,
+		debug                = isDebug,
+		addLineNumbers       = addLineNumbers,
 
-		backtickStrings = allowBacktickStrings,
-		jitSyntax       = allowJitSyntax,
-		canOutputNil    = canOutputNil,
-		fastStrings     = fastStrings,
-		validate        = validate,
+		backtickStrings      = allowBacktickStrings,
+		jitSyntax            = allowJitSyntax,
+		canOutputNil         = canOutputNil,
+		fastStrings          = fastStrings,
+		validate             = validate,
+		strictMacroArguments = strictMacroArguments,
 
-		macroPrefix     = macroPrefix,
-		macroSuffix     = macroSuffix,
+		macroPrefix          = macroPrefix,
+		macroSuffix          = macroSuffix,
 
-		release         = releaseMode,
-		logLevel        = maxLogLevel,
+		release              = releaseMode,
+		logLevel             = maxLogLevel,
 
 		onInsert = (hasMessageHandler("insert") or nil) and function(name)
 			local lua = sendMessage("insert", pathIn, name)
