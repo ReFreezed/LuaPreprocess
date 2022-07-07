@@ -147,6 +147,7 @@ Handler messages:
 		Sent before a file's metaprogram runs.
 		Arguments:
 			path: The file being processed.
+			luaString: The generated metaprogram.
 
 	"aftermeta"
 		Sent after a file's metaprogram has produced output (before the output is written to a file).
@@ -544,8 +545,8 @@ for i, pathIn in ipairs(pathsIn) do
 			return lua
 		end,
 
-		onBeforeMeta = messageHandler and function()
-			sendMessage("beforemeta", pathIn)
+		onBeforeMeta = messageHandler and function(lua)
+			sendMessage("beforemeta", pathIn, lua)
 		end,
 
 		onAfterMeta = messageHandler and function(lua)

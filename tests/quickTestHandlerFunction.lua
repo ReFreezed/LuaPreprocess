@@ -30,8 +30,8 @@ end
 
 return function(message, ...)
 	if message == "beforemeta" then
-		local path = ...
-		print("... Now processing "..path)
+		local path, luaString = ...
+		print("... Now running metaprogram for "..path)
 
 	elseif message == "aftermeta" then
 		local path, luaString = ...

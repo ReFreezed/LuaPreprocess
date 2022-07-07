@@ -29,8 +29,8 @@ end
 --
 
 return {
-	beforemeta = function(path)
-		print("... Now processing "..path)
+	beforemeta = function(path, luaString)
+		print("... Now running metaprogram for "..path)
 	end,
 
 	aftermeta = function(path, luaString)

@@ -708,12 +708,21 @@ doTest("Indentation", function()
 	local indent, expect = pp.getIndentation("\t    \t", 4), 12 ; if indent ~= expect then  error(expect.." "..indent)  end
 end)
 
-doTest("Recursive processing", function()
+doTest("Processing calls", function()
 	local pp              = ppChunk()
 	pp.metaEnvironment.pp = pp
 
+	-- Path collisions.
+	writeFile("temp/generatedTest.lua2p", [[]])
+	assert(    pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta=nil })
+	assert(    pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.meta.lua" })
+	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua2p", pathMeta=nil })
+	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.lua2p" })
+	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.lua" })
+
+	-- Recursive processing. (Not supported!)
 	assert(not pp.processString{ code=[[
-		!pp.processString{ code="" } -- Not supported!
+		!pp.processString{ code="" }
 	]]})
 end)
 
@@ -946,7 +955,7 @@ doTest("Messages", function()
 			cycle == 1 and [[ return {
 				init       = function(inPaths, outPaths  )  assert(not outPaths) ; table.insert(inPaths, "temp/generatedTest.lua2p")  end,
 				insert     = function(path, name         )  assert(name == "foo()") ; return "un"..name  end,
-				beforemeta = function(path               )  end,
+				beforemeta = function(path, lua          )  end,
 				aftermeta  = function(path, lua          )  return "-- Hello\n"..lua  end,
 				filedone   = function(path, outPath, info)  assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")  end,
 				fileerror  = function(path, err          )  end,
@@ -955,7 +964,7 @@ doTest("Messages", function()
 			or [[ return function(message, ...)
 				if     message == "init"       then  local inPaths, outPaths   = ... ; assert(not outPaths) ; table.insert(inPaths, "temp/generatedTest.lua2p")
 				elseif message == "insert"     then  local path, name          = ... ; assert(name == "foo()") ; return "un"..name
-				elseif message == "beforemeta" then  local path                = ...
+				elseif message == "beforemeta" then  local path, lua           = ...
 				elseif message == "aftermeta"  then  local path, lua           = ... ; return "-- Hello\n"..lua
 				elseif message == "filedone"   then  local path, outPath, info = ... ; assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")
 				elseif message == "fileerror"  then  local path, err           = ...

@@ -3429,6 +3429,14 @@ local function _processFileOrString(params, isFile)
 			error("'pathIn' and 'pathOut' are the same in params.", 2)
 		end
 
+		if (params.pathMeta or "-") ~= "-" then
+			if params.pathMeta == params.pathIn then
+				error("'pathIn' and 'pathMeta' are the same in params.", 2)
+			elseif params.pathMeta == params.pathOut then
+				error("'pathOut' and 'pathMeta' are the same in params.", 2)
+			end
+		end
+
 	else
 		if not params.code then  error("Missing 'code' in params.", 2)  end
 	end
@@ -3536,13 +3544,13 @@ local function _processFileOrString(params, isFile)
 		file:close()
 	end
 
+	if params.onBeforeMeta then  params.onBeforeMeta(luaMeta)  end
+
 	local main_chunk, err = loadLuaString(luaMeta, "@"..current_meta_pathForErrorMessages, metaEnv)
 	if not main_chunk then
 		local ln, _err = err:match"^.-:(%d+): (.*)"
 		errorOnLine(current_meta_pathForErrorMessages, (tonumber(ln) or 0), nil, "%s", (_err or err))
 	end
-
-	if params.onBeforeMeta then  params.onBeforeMeta()  end
 
 	current_anytime_isRunningMeta = true
 	main_chunk() -- Note: Our caller should clean up current_meta_pathForErrorMessages etc. on error.
@@ -3644,7 +3652,7 @@ end
 
 local function processFileOrString(params, isFile)
 	if current_parsingAndMeta_isProcessing then
-		error("Cannot process recursively.", 3)
+		error("Cannot process recursively.", 3) -- Note: We don't return failure in this case - it's a critical error!
 	end
 
 	-- local startTime = os.clock() -- DEBUG
@@ -3751,7 +3759,7 @@ local pp = {
 	--   logLevel             = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
 	--
 	--   onInsert             = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
-	--   onBeforeMeta         = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onBeforeMeta         = function( luaString ) -- [Optional] Called before the metaprogram runs. luaString contains the metaprogram.
 	--   onAfterMeta          = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
 	--   onError              = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
 	--
@@ -3784,7 +3792,7 @@ local pp = {
 	--   logLevel             = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
 	--
 	--   onInsert             = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
-	--   onBeforeMeta         = function( )           -- [Optional] Called before the metaprogram runs.
+	--   onBeforeMeta         = function( luaString ) -- [Optional] Called before the metaprogram runs. luaString contains the metaprogram.
 	--   onError              = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--
 	processString = processString,
