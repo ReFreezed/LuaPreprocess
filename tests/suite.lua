@@ -708,6 +708,15 @@ doTest("Indentation", function()
 	local indent, expect = pp.getIndentation("\t    \t", 4), 12 ; if indent ~= expect then  error(expect.." "..indent)  end
 end)
 
+doTest("Recursive processing", function()
+	local pp              = ppChunk()
+	pp.metaEnvironment.pp = pp
+
+	assert(not pp.processString{ code=[[
+		!pp.processString{ code="" } -- Not supported!
+	]]})
+end)
+
 doTest("Misc.", function()
 	local pp = ppChunk()
 

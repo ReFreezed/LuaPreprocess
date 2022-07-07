@@ -196,7 +196,8 @@ local metaEnv  = nil
 local dummyEnv = {}
 
 -- Controlled by processFileOrString():
-local current_parsingAndMeta_isDebug = false
+local current_parsingAndMeta_isProcessing = false
+local current_parsingAndMeta_isDebug      = false
 
 -- Controlled by _processFileOrString():
 local current_anytime_isRunningMeta               = false
@@ -3642,15 +3643,21 @@ local function _processFileOrString(params, isFile)
 end
 
 local function processFileOrString(params, isFile)
+	if current_parsingAndMeta_isProcessing then
+		error("Cannot process recursively.", 3)
+	end
+
 	-- local startTime = os.clock() -- DEBUG
 	local returnValues = nil
 
-	current_parsingAndMeta_isDebug = params.debug
+	current_parsingAndMeta_isProcessing = true
+	current_parsingAndMeta_isDebug      = params.debug
 
 	local xpcallOk, xpcallErr = xpcall(
 		function()
 			returnValues = pack(_processFileOrString(params, isFile))
 		end,
+
 		function(err)
 			if type(err) == "string" and err:find("\0", 1, true) then
 				printError(tryToFormatError(cleanError(err)))
@@ -3669,7 +3676,8 @@ local function processFileOrString(params, isFile)
 		end
 	)
 
-	current_parsingAndMeta_isDebug = false
+	current_parsingAndMeta_isProcessing = false
+	current_parsingAndMeta_isDebug      = false
 
 	-- Cleanup in case an error happened.
 	current_anytime_isRunningMeta               = false
