@@ -527,6 +527,24 @@ end)
 
 addLabel("Library API")
 
+doTest("Processing calls", function()
+	local pp              = ppChunk()
+	pp.metaEnvironment.pp = pp
+
+	-- Path collisions.
+	writeFile("temp/generatedTest.lua2p", [[]])
+	assert(    pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta=nil })
+	assert(    pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.meta.lua" })
+	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua2p", pathMeta=nil })
+	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.lua2p" })
+	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.lua" })
+
+	-- Recursive processing is not supported.
+	assert(not pp.processString{ code=[[
+		!pp.processString{ code="" }
+	]]})
+end)
+
 doTest("Create tokens", function()
 	local pp = ppChunk()
 
@@ -706,24 +724,6 @@ doTest("Indentation", function()
 	local indent, expect = pp.getIndentation("\t  \t"  , 4), 8  ; if indent ~= expect then  error(expect.." "..indent)  end
 	local indent, expect = pp.getIndentation("\t   \t" , 4), 8  ; if indent ~= expect then  error(expect.." "..indent)  end
 	local indent, expect = pp.getIndentation("\t    \t", 4), 12 ; if indent ~= expect then  error(expect.." "..indent)  end
-end)
-
-doTest("Processing calls", function()
-	local pp              = ppChunk()
-	pp.metaEnvironment.pp = pp
-
-	-- Path collisions.
-	writeFile("temp/generatedTest.lua2p", [[]])
-	assert(    pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta=nil })
-	assert(    pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.meta.lua" })
-	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua2p", pathMeta=nil })
-	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.lua2p" })
-	assert(not pp.processFile{ pathIn="temp/generatedTest.lua2p", pathOut="temp/generatedTest.lua"  , pathMeta="temp/generatedTest.lua" })
-
-	-- Recursive processing. (Not supported!)
-	assert(not pp.processString{ code=[[
-		!pp.processString{ code="" }
-	]]})
 end)
 
 doTest("Misc.", function()

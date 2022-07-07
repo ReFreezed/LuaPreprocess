@@ -133,7 +133,8 @@
 
 local PP_VERSION = "1.20.0-dev"
 
-local MAX_DUPLICATE_FILE_INSERTS = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
+local MAX_DUPLICATE_FILE_INSERTS  = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
+local MAX_CODE_LENGTH_IN_MESSAGES = 60
 
 local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
@@ -357,7 +358,7 @@ end
 -- 	error("\0"..err, 0) -- The 0 tells our own error handler not to print the traceback.
 -- end
 local function errorfLine(s, ...)
-	errorf(0, "\0"..s, ...) -- The 0 tells our own error handler not to print the traceback.
+	errorf(0, (current_parsingAndMeta_isProcessing and "\0" or "")..s, ...) -- The \0 tells our own error handler not to print the traceback.
 end
 
 -- errorOnLine( path, lineNumber, agent=nil, s, ... )
@@ -436,7 +437,7 @@ end
 
 -- runtimeErrorAtToken( level, token, position=token.position, agent, s, ... )
 local function runtimeErrorAtToken(level, tok, pos, agent, s, ...)
-	-- printErrorTraceback("errorAtToken", 2) -- DEBUG
+	-- printErrorTraceback("runtimeErrorAtToken", 2) -- DEBUG
 	runtimeErrorInFile(1+level, current_parsingAndMeta_fileBuffers[tok.file], tok.file, (pos or tok.position), agent, s, ...)
 end
 
@@ -453,6 +454,18 @@ local function cleanError(err)
 		err = err:gsub("%z", "")
 	end
 	return err
+end
+
+
+
+local function formatCodeForShortMessage(lua)
+	lua = lua:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+
+	if #lua > MAX_CODE_LENGTH_IN_MESSAGES then
+		lua = lua:sub(1, MAX_CODE_LENGTH_IN_MESSAGES/2) .. "..." .. lua:sub(-MAX_CODE_LENGTH_IN_MESSAGES/2)
+	end
+
+	return lua
 end
 
 
@@ -1354,6 +1367,10 @@ else
 	end
 end
 
+local function isLuaStringValidExpression(lua)
+	return loadLuaString("return("..lua.."\n)", "@", nil) ~= nil
+end
+
 
 
 -- token, index = getNextUsableToken( tokens, startIndex, indexLimit=autoDependingOnDirection, direction )
@@ -1556,7 +1573,7 @@ local function _loadResource(resourceName, isParsing, nameTokOrErrLevel, stats)
 			errorAtToken(
 				nameTokOrErrLevel, nameTokOrErrLevel.position+1, "Parser",
 				"Too many duplicate inserts. We may be stuck in a recursive loop. (Unique files inserted so far: %s)",
-				table.concat(stats.insertedNames, ", ")
+				stats.insertedNames[1] and table.concat(stats.insertedNames, ", ") or "none"
 			)
 		end
 	end
@@ -1749,7 +1766,7 @@ function metaFuncs.outputLuaTemplate(lua, ...)
 	local v, err
 
 	lua = lua:gsub("%?", function()
-		n      = n+1
+		n      = n + 1
 		v, err = toLua(args[n])
 
 		if not v then
@@ -1989,7 +2006,7 @@ local numberFormatters = {
 	SCIENTIFIC  = function(n) return F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1") end,
 	e           = function(n) return F("%e", n):gsub("(%d)0+e", "%1e"):gsub("0+(%d+)$", "%1") end,
 	E           = function(n) return F("%E", n):gsub("(%d)0+E", "%1E"):gsub("0+(%d+)$", "%1") end,
-	hexadecimal = function(n) return (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet.", 3)) end,
+	hexadecimal = function(n) return (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet.", 3)) end, -- @Incomplete
 	HEXADECIMAL = function(n) return (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet.", 3)) end,
 	hex         = function(n) return (n == math.floor(n) and F("0x%x", n) or error("Hexadecimal floats not supported yet.", 3)) end,
 	HEX         = function(n) return (n == math.floor(n) and F("0x%X", n) or error("Hexadecimal floats not supported yet.", 3)) end,
@@ -2240,6 +2257,10 @@ function metaFuncs.ASSERT(conditionCode, messageCode)
 	errorIfNotRunningMeta(2)
 	if not conditionCode then  error("missing argument #1 to 'ASSERT'", 2)  end
 
+	-- if not isLuaStringValidExpression(conditionCode) then
+	-- 	errorf(2, "Invalid condition expression: %s", formatCodeForShortMessage(conditionCode))
+	-- end
+
 	if current_meta_releaseMode then  return  end
 
 	tableInsert(current_meta_output, "if not (")
@@ -2272,11 +2293,11 @@ function metaFuncs.LOG(logLevelCode, valueOrFormatCode, ...)
 	if not logLevelCode      then  error("missing argument #1 to 'LOG'", 2)  end
 	if not valueOrFormatCode then  error("missing argument #2 to 'LOG'", 2)  end
 
-	local chunk = loadLuaString("return 0,"..logLevelCode, "@", dummyEnv)
-	if not chunk then  errorf(2, "Invalid logLevel expression. Got: %s", logLevelCode)  end
+	local chunk = loadLuaString("return("..logLevelCode.."\n)", "@", dummyEnv)
+	if not chunk then  errorf(2, "Invalid logLevel expression: %s", formatCodeForShortMessage(logLevelCode))  end
 
-	local ok, _, logLevel = pcall(chunk)
-	if not ok                   then  errorf(2, "logLevel must be a constant expression. Got: %s", logLevelCode)  end
+	local ok, logLevel = pcall(chunk)
+	if not ok                   then  errorf(2, "logLevel must be a constant expression. Got: %s", formatCodeForShortMessage(logLevelCode))  end
 	if not LOG_LEVELS[logLevel] then  errorf(2, "Invalid logLevel '%s'.", tostring(logLevel))  end
 	if logLevel == "off"        then  errorf(2, "Invalid logLevel '%s'.", tostring(logLevel))  end
 
@@ -2325,7 +2346,7 @@ local function finalizeMacro(lua)
 	if lua == nil then
 		return (_stopInterceptingOutput(2))
 	elseif type(lua) ~= "string" then
-		error("[Macro] Value is not Lua code.", 2)
+		errorf(2, "[Macro] Value is not Lua code. (Got %s)", type(lua))
 	elseif current_meta_output[1] then
 		error("[Macro] Got Lua code from both value expression and outputLua(). Only one method may be used.", 2) -- It's also possible interception calls are unbalanced.
 	else
@@ -2336,10 +2357,6 @@ end
 function metaEnv.__M()
 	metaFuncs.startInterceptingOutput()
 	return finalizeMacro
-end
-
-local function isLuaStringValidExpression(lua)
-	return loadLuaString("return("..lua.."\n)", "@", nil) ~= nil
 end
 
 -- luaString = __ARG( locationTokenNumber, luaString|callback )
@@ -2355,7 +2372,7 @@ function metaEnv.__ARG(locTokNum, v)
 	end
 
 	if current_parsingAndMeta_strictMacroArguments and not isLuaStringValidExpression(lua) then
-		runtimeErrorAtToken(2, current_meta_locationTokens[locTokNum], nil, "MacroArgument", "Result is not a valid Lua expression: %s", lua)
+		runtimeErrorAtToken(2, current_meta_locationTokens[locTokNum], nil, "MacroArgument", "Argument result is not a valid Lua expression: %s", formatCodeForShortMessage(lua))
 	end
 
 	return lua
@@ -2730,8 +2747,7 @@ local function astParseMetaBlock(tokens)
 		if #lua > 100 then
 			lua = lua:sub(1, 50) .. "..." .. lua:sub(-50)
 		end
-		lua = lua:gsub("\n", " ")
-		errorAtToken(tokens[ppEntryTokIndex+1], nil, "Parser/MetaBlock", "Ambiguous expression '%s'. (Comma-separated list?)", lua)
+		errorAtToken(tokens[ppEntryTokIndex+1], nil, "Parser/MetaBlock", "Ambiguous expression '%s'. (Comma-separated list?)", formatCodeForShortMessage(lua))
 	end
 
 	local astOutNode = ((ppEntryTok.double and AstExpressionCode) or (isExpression and AstExpressionValue or AstMetaprogram))(ppEntryTok, outTokens)
@@ -3142,7 +3158,7 @@ local function astParseMacro(params, tokens)
 		tokens.nextI = iNext -- until '!' or '!!'
 
 		if not isTokenAndNotNil(tokens[tokens.nextI+1], "punctuation", "(") then
-			errorAfterToken(tokNext, "Parser/Macro", "Expected '(' after '!'.")
+			errorAfterToken(tokNext, "Parser/Macro", "Expected '(' after '%s'.", tokNext.value)
 		end
 
 		astMacro.arguments[1] = MacroArgument(tokNext, {astParseMetaBlock(tokens)}) -- The one and only argument for this macro variant.
@@ -3429,12 +3445,12 @@ local function _processFileOrString(params, isFile)
 			error("'pathIn' and 'pathOut' are the same in params.", 2)
 		end
 
-		if (params.pathMeta or "-") ~= "-" then
-			if params.pathMeta == params.pathIn then
-				error("'pathIn' and 'pathMeta' are the same in params.", 2)
-			elseif params.pathMeta == params.pathOut then
-				error("'pathOut' and 'pathMeta' are the same in params.", 2)
-			end
+		if (params.pathMeta or "-") == "-" then -- Should it be possible to output the metaprogram to stdout?
+			-- void
+		elseif params.pathMeta == params.pathIn then
+			error("'pathIn' and 'pathMeta' are the same in params.", 2)
+		elseif params.pathMeta == params.pathOut then
+			error("'pathOut' and 'pathMeta' are the same in params.", 2)
 		end
 
 	else
