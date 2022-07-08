@@ -640,7 +640,7 @@ local function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitS
 				if     pat == NUM_HEX_FRAC_EXP then  _, intStr, fracStr, expStr = numStrFallback:match(NUM_HEX_FRAC_EXP)
 				elseif pat == NUM_HEX_FRAC     then  _, intStr, fracStr         = numStrFallback:match(NUM_HEX_FRAC) ; expStr  = "0"
 				elseif pat == NUM_HEX_EXP      then  _, intStr,          expStr = numStrFallback:match(NUM_HEX_EXP)  ; fracStr = ""
-				else assert(false) end
+				else internalError() end
 
 				n = tonumber(intStr, 16) or 0 -- intStr may be "".
 
@@ -1777,7 +1777,7 @@ function metaFuncs.outputLuaTemplate(lua, ...)
 			errorf(3, "Bad argument %d: %s", 1+n, err)
 		end
 
-		return assert(v)
+		return v
 	end)
 
 	tableInsert(current_meta_output, lua)
@@ -3575,7 +3575,9 @@ local function _processFileOrString(params, isFile)
 		current_meta_releaseMode          = params.release
 
 		if params.pathMeta then
-			local file = assert(io.open(params.pathMeta, "wb"))
+			local file, err = io.open(params.pathMeta, "wb")
+			if not file then  errorf("Count not open '%s' for writing. (%s)", params.pathMeta, err)  end
+
 			file:write(luaMeta)
 			file:close()
 		end
@@ -3644,8 +3646,11 @@ local function _processFileOrString(params, isFile)
 		if pathOut == "-" then
 			io.stdout:write(specialFirstLine or "")
 			io.stdout:write(lua)
+
 		else
-			local file = assert(io.open(pathOut, "wb"))
+			local file, err = io.open(pathOut, "wb")
+			if not file then  errorf("Count not open '%s' for writing. (%s)", pathOut, err)  end
+
 			file:write(specialFirstLine or "")
 			file:write(lua)
 			file:close()
