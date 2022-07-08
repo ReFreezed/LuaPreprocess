@@ -1,6 +1,21 @@
 Changelog
 LuaPreprocess
 
+v1.21 (2022-07-08)
+Library:
+- Added params.strictMacroArguments (which is enabled by default). Macro arguments are validated to be Lua expressions once again, unless strictMacroArguments is disabled.
+- Added the metaprogram code as an argument to params.onBeforeMeta().
+- Added functions: callMacro(), isProcessing().
+- params.onBeforeMeta() is now only called, and .meta.lua files are only written, if processing is necessary (i.e. not for plain Lua files in most cases).
+- Plain Lua files should process a bit faster.
+- Checking that params.pathMeta isn't the same as the input or output path.
+- Error messages showing lots of code are now shortened.
+- Fixed evaluate() treating empty code as a valid expression.
+Command line program:
+- Added option: --nostrictmacroarguments.
+- Added the metaprogram code as an argument to the "beforemeta" message handler.
+- The "beforemeta" message is now only sent, and .meta.lua files are only written, if processing is necessary (i.e. not for plain Lua files in most cases).
+
 v1.20 (2022-07-01)
 Library:
 - getOutputSoFar() can now take an output buffer argument.

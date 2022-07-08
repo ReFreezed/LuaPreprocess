@@ -775,14 +775,30 @@ doTest("Misc.", function()
 	local luaOut = assert(pp.processString{ code=[[
 		!!(callMacro("ASSERT", "x", "foo()"))
 	]]})
-	assertCodeOutput(luaOut, "if not (x) then  error((foo()))  end")
+	assertCodeOutput(luaOut, [[if not (x) then  error((foo()))  end]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!!(callMacro(ASSERT, "x", "foo()"))
+	]]})
+	assertCodeOutput(luaOut, [[if not (x) then  error((foo()))  end]])
+
+	local luaOut = assert(pp.processString{ code=[[
+		!callMacro(ASSERT, "x", "foo()")
+	]]})
+	assertCodeOutput(luaOut, [[]])
 
 	local luaOut = assert(pp.processString{ macroPrefix="MACRO_", code=[[
 		!function _G.MACRO_MOO() return "foo()" end -- Must be global!
 		!!(callMacro("MOO"))
 	]]})
-	assertCodeOutput(luaOut, "foo()")
+	assertCodeOutput(luaOut, [[foo()]])
 	pp.metaEnvironment.MACRO_MOO = nil
+
+	local luaOut = assert(pp.processString{ macroPrefix="MACRO_", code=[[
+		!local function MACRO_MOO() return "foo()" end
+		!!(callMacro(MACRO_MOO))
+	]]})
+	assertCodeOutput(luaOut, [[foo()]])
 
 	assert(not pp.processString{ macroPrefix="MACRO_", code=[[
 		!local function MACRO_MOO() return "foo()" end -- Not a global!
@@ -794,6 +810,11 @@ doTest("Misc.", function()
 		!!(callMacro("MACRO_MOO")) -- Calls MACRO_MACRO_MOO!
 	]]})
 	pp.metaEnvironment.MACRO_MOO = nil
+
+	-- Processing, or not processing... that's the real question here, mate.
+	assert(not pp.isProcessing())
+	assert(pp.processString{ code=[[ !assert(isProcessing()) ]]})
+	assert(not pp.isProcessing())
 end)
 
 
@@ -986,7 +1007,7 @@ doTest("Messages", function()
 			cycle == 1 and [[ return {
 				init       = function(inPaths, outPaths  )  assert(not outPaths) ; table.insert(inPaths, "temp/generatedTest.lua2p")  end,
 				insert     = function(path, name         )  assert(name == "foo()") ; return "un"..name  end,
-				beforemeta = function(path, lua          )  end,
+				beforemeta = function(path, lua          )  assert(type(lua) == "string")  end,
 				aftermeta  = function(path, lua          )  return "-- Hello\n"..lua  end,
 				filedone   = function(path, outPath, info)  assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")  end,
 				fileerror  = function(path, err          )  end,
@@ -995,7 +1016,7 @@ doTest("Messages", function()
 			or [[ return function(message, ...)
 				if     message == "init"       then  local inPaths, outPaths   = ... ; assert(not outPaths) ; table.insert(inPaths, "temp/generatedTest.lua2p")
 				elseif message == "insert"     then  local path, name          = ... ; assert(name == "foo()") ; return "un"..name
-				elseif message == "beforemeta" then  local path, lua           = ...
+				elseif message == "beforemeta" then  local path, lua           = ... ; assert(type(lua) == "string")
 				elseif message == "aftermeta"  then  local path, lua           = ... ; return "-- Hello\n"..lua
 				elseif message == "filedone"   then  local path, outPath, info = ... ; assert(outPath == "temp/generatedTest.lua") ; assert(type(info) == "table")
 				elseif message == "fileerror"  then  local path, err           = ...

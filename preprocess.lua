@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess v1.20-dev - preprocessing library
+--=  LuaPreprocess v1.21 - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -17,6 +17,7 @@
 	- copyTable
 	- escapePattern
 	- getIndentation
+	- isProcessing
 	- pack
 	- pairsSorted
 	- printf
@@ -131,7 +132,7 @@
 
 
 
-local PP_VERSION = "1.20.0-dev"
+local PP_VERSION = "1.21.0"
 
 local MAX_DUPLICATE_FILE_INSERTS  = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 local MAX_CODE_LENGTH_IN_MESSAGES = 60
@@ -2258,22 +2259,37 @@ local function isCallable(v)
 end
 
 -- callMacro()
---   luaString = callMacro( macroName, argument1, ... )
---   Call a macro function (which must be a global in metaEnvironment).
+--   luaString = callMacro( function|macroName, argument1, ... )
+--   Call a macro function (which must be a global in metaEnvironment if macroName is given).
 --   The arguments should be Lua code strings.
-function metaFuncs.callMacro(name, ...)
+function metaFuncs.callMacro(nameOrFunc, ...)
 	errorIfNotRunningMeta(2)
 
-	local nameResult = current_parsingAndMeta_macroPrefix .. name .. current_parsingAndMeta_macroSuffix
-	local f          = metaEnv[nameResult]
+	assertarg(1, nameOrFunc, "string","function")
+	local f
 
-	if not isCallable(f) then
-		if    name == nameResult
-		then  errorf(2, "'%s' is not a macro/global function. (Got %s)", name, type(f))
-		else  errorf(2, "'%s' (resolving to '%s') is not a macro/global function. (Got %s)", name, nameResult, type(f))  end
+	if type(nameOrFunc) == "string" then
+		local nameResult = current_parsingAndMeta_macroPrefix .. nameOrFunc .. current_parsingAndMeta_macroSuffix
+		f                = metaEnv[nameResult]
+
+		if not isCallable(f) then
+			if    nameOrFunc == nameResult
+			then  errorf(2, "'%s' is not a macro/global function. (Got %s)", nameOrFunc, type(f))
+			else  errorf(2, "'%s' (resolving to '%s') is not a macro/global function. (Got %s)", nameOrFunc, nameResult, type(f))  end
+		end
+
+	else
+		f = nameOrFunc
 	end
 
 	return (metaEnv.__M()(f(...)))
+end
+
+-- isProcessing()
+--   bool = isProcessing( )
+--   Returns true if a file or string is currently being processed.
+function metaFuncs.isProcessing()
+	return current_parsingAndMeta_isProcessing
 end
 
 -- :PredefinedMacros
@@ -3816,7 +3832,7 @@ local pp = {
 	--   logLevel             = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
 	--
 	--   onInsert             = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
-	--   onBeforeMeta         = function( luaString ) -- [Optional] Called before the metaprogram runs. luaString contains the metaprogram.
+	--   onBeforeMeta         = function( luaString ) -- [Optional] Called before the metaprogram runs, if a metaprogram is generated. luaString contains the metaprogram.
 	--   onAfterMeta          = function( luaString ) -- [Optional] Here you can modify and return the Lua code before it's written to 'pathOut'.
 	--   onError              = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as what is returned from processFile().
 	--
@@ -3849,7 +3865,7 @@ local pp = {
 	--   logLevel             = levelName             -- [Optional] Maximum log level for the @@LOG() macro. Can be "off", "error", "warning", "info", "debug" or "trace". (Default: "trace", which enables all logging)
 	--
 	--   onInsert             = function( name )      -- [Optional] Called for each @insert"name" instruction. It's expected to return a Lua code string. By default 'name' is a path to a file to be inserted.
-	--   onBeforeMeta         = function( luaString ) -- [Optional] Called before the metaprogram runs. luaString contains the metaprogram.
+	--   onBeforeMeta         = function( luaString ) -- [Optional] Called before the metaprogram runs, if a metaprogram is generated. luaString contains the metaprogram.
 	--   onError              = function( error )     -- [Optional] You can use this to get traceback information. 'error' is the same value as the second returned value from processString().
 	--
 	processString = processString,

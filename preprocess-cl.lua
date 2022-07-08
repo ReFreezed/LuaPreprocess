@@ -144,7 +144,7 @@ Handler messages:
 			name: The name of the resource to be inserted (could be a file path or anything).
 
 	"beforemeta"
-		Sent before a file's metaprogram runs.
+		Sent before a file's metaprogram runs, if a metaprogram is generated.
 		Arguments:
 			path: The file being processed.
 			luaString: The generated metaprogram.
