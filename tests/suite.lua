@@ -543,6 +543,11 @@ doTest("Processing calls", function()
 	assert(not pp.processString{ code=[[
 		!pp.processString{ code="" }
 	]]})
+
+	-- Callback: onBeforeMeta should only fire if there's preprocessor code.
+	local fired = false ; assert(pp.processString{ onBeforeMeta=function()fired=(true)end, code=[[ n = !(@line) ]]}) ; assert(    fired)
+	local fired = false ; assert(pp.processString{ onBeforeMeta=function()fired=(true)end, code=[[ n =  (@line) ]]}) ; assert(    fired)
+	local fired = false ; assert(pp.processString{ onBeforeMeta=function()fired=(true)end, code=[[ n =  (1    ) ]]}) ; assert(not fired)
 end)
 
 doTest("Create tokens", function()

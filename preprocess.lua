@@ -140,7 +140,7 @@ local KEYWORDS = {
 	"and","break","do","else","elseif","end","false","for","function","if","in",
 	"local","nil","not","or","repeat","return","then","true","until","while",
 	-- Lua 5.2
-	"goto",
+	"goto", -- @Incomplete: A parameter to disable this for Lua 5.1?
 } for i, v in ipairs(KEYWORDS) do  KEYWORDS[v], KEYWORDS[i] = true, nil  end
 
 local PREPROCESSOR_KEYWORDS = {
@@ -184,15 +184,6 @@ local LOG_LEVELS = {
 	["trace"  ] = 5,
 }
 
-local major, minor = _VERSION:match"Lua (%d+)%.(%d+)"
-if not major then
-	io.stderr:write("[LuaPreprocess] Warning: Could not detect Lua version.\n")
-else
-	major = tonumber(major)
-	minor = tonumber(minor)
-end
-local IS_LUA_52_OR_LATER = (major == 5 and minor >= 2) or (major ~= nil and major > 5)
-
 local metaEnv  = nil
 local dummyEnv = {}
 
@@ -207,14 +198,14 @@ local current_anytime_pathOut                     = ""
 local current_anytime_fastStrings                 = false
 local current_parsing_insertCount                 = 0
 local current_parsingAndMeta_onInsert             = nil
-local current_parsingAndMeta_fileBuffers          = nil
+local current_parsingAndMeta_resourceCache        = nil
 local current_parsingAndMeta_addLineNumbers       = false
 local current_parsingAndMeta_macroPrefix          = ""
 local current_parsingAndMeta_macroSuffix          = ""
 local current_parsingAndMeta_strictMacroArguments = true
 local current_meta_pathForErrorMessages           = ""
-local current_meta_outputStack                    = nil
 local current_meta_output                         = nil -- Top item in current_meta_outputStack.
+local current_meta_outputStack                    = nil
 local current_meta_canOutputNil                   = true
 local current_meta_releaseMode                    = false
 local current_meta_maxLogLevel                    = "trace"
@@ -428,19 +419,19 @@ end
 -- errorAtToken( token, position=token.position, agent, s, ... )
 local function errorAtToken(tok, pos, agent, s, ...)
 	-- printErrorTraceback("errorAtToken", 2) -- DEBUG
-	errorInFile(current_parsingAndMeta_fileBuffers[tok.file], tok.file, (pos or tok.position), agent, s, ...)
+	errorInFile(current_parsingAndMeta_resourceCache[tok.file], tok.file, (pos or tok.position), agent, s, ...)
 end
 
 -- errorAfterToken( token, agent, s, ... )
 local function errorAfterToken(tok, agent, s, ...)
 	-- printErrorTraceback("errorAfterToken", 2) -- DEBUG
-	errorInFile(current_parsingAndMeta_fileBuffers[tok.file], tok.file, tok.position+#tok.representation, agent, s, ...)
+	errorInFile(current_parsingAndMeta_resourceCache[tok.file], tok.file, tok.position+#tok.representation, agent, s, ...)
 end
 
 -- runtimeErrorAtToken( level, token, position=token.position, agent, s, ... )
 local function runtimeErrorAtToken(level, tok, pos, agent, s, ...)
 	-- printErrorTraceback("runtimeErrorAtToken", 2) -- DEBUG
-	runtimeErrorInFile(1+level, current_parsingAndMeta_fileBuffers[tok.file], tok.file, (pos or tok.position), agent, s, ...)
+	runtimeErrorInFile(1+level, current_parsingAndMeta_resourceCache[tok.file], tok.file, (pos or tok.position), agent, s, ...)
 end
 
 -- internalError( [ message|value ] )
@@ -1071,10 +1062,19 @@ local function shouldCodepointBeEscaped(cp)
 	return true
 end
 
+-- local cache = setmetatable({}, {__mode="kv"}) -- :SerializationCache (This doesn't seem to speed things up.)
+
 -- success, error = serialize( buffer, value )
--- @Speed: Cache all possible values!
 local function serialize(buffer, v)
-	local vType = type(v)
+	--[[ :SerializationCache
+	if cache[v] then
+		tableInsert(buffer, cache[v])
+		return true
+	end
+	local bufferStart = #buffer + 1
+	--]]
+
+	local vType       = type(v)
 
 	if vType == "table" then
 		local first = true
@@ -1197,6 +1197,13 @@ local function serialize(buffer, v)
 	else
 		return false, F("Cannot serialize value of type '%s'. (%s)", vType, tostring(v))
 	end
+
+	--[[ :SerializationCache
+	if v ~= nil then
+		cache[v] = table.concat(buffer, "", bufferStart, #buffer)
+	end
+	--]]
+
 	return true
 end
 
@@ -1325,25 +1332,22 @@ end
 
 -- values = pack( value1, ... )
 -- values.n is the amount of values (which can be zero).
-local pack
-if IS_LUA_52_OR_LATER then
-	--[[local]] pack = table.pack
-else
-	--[[local]] function pack(...)
+local pack = (
+	(_VERSION >= "Lua 5.2" or jit) and table.pack
+	or function(...)
 		return {n=select("#", ...), ...}
 	end
-end
+)
 
-local unpack = IS_LUA_52_OR_LATER and table.unpack or _G.unpack
+local unpack = (_VERSION >= "Lua 5.2") and table.unpack or _G.unpack
 
 
 
-if IS_LUA_52_OR_LATER then
-	--[[local]] function loadLuaString(lua, chunkName, env)
+--[[local]] loadLuaString = (
+	(_VERSION >= "Lua 5.2" or jit) and function(lua, chunkName, env)
 		return load(lua, chunkName, "bt", env)
 	end
-else
-	--[[local]] function loadLuaString(lua, chunkName, env)
+	or function(lua, chunkName, env)
 		local chunk, err = loadstring(lua, chunkName)
 		if not chunk then  return nil, err  end
 
@@ -1351,15 +1355,13 @@ else
 
 		return chunk
 	end
-end
+)
 
-local loadLuaFile
-if IS_LUA_52_OR_LATER then
-	--[[local]] function loadLuaFile(path, env)
+local loadLuaFile = (
+	(_VERSION >= "Lua 5.2" or jit) and function(path, env)
 		return loadfile(path, "bt", env)
 	end
-else
-	--[[local]] function loadLuaFile(path, env)
+	or function(path, env)
 		local chunk, err = loadfile(path)
 		if not chunk then  return nil, err  end
 
@@ -1367,7 +1369,7 @@ else
 
 		return chunk
 	end
-end
+)
 
 local function isLuaStringValidExpression(lua)
 	return loadLuaString("return("..lua.."\n)", "@", nil) ~= nil
@@ -1535,7 +1537,7 @@ end
 -- lua = _loadResource( resourceName, isParsing==true , nameToken, stats ) -- At parse time.
 -- lua = _loadResource( resourceName, isParsing==false, errorLevel       ) -- At metaprogram runtime.
 local function _loadResource(resourceName, isParsing, nameTokOrErrLevel, stats)
-	local lua = current_parsingAndMeta_fileBuffers[resourceName]
+	local lua = current_parsingAndMeta_resourceCache[resourceName]
 
 	if not lua then
 		if current_parsingAndMeta_onInsert then
@@ -1562,7 +1564,7 @@ local function _loadResource(resourceName, isParsing, nameTokOrErrLevel, stats)
 			end
 		end
 
-		current_parsingAndMeta_fileBuffers[resourceName] = lua
+		current_parsingAndMeta_resourceCache[resourceName] = lua
 
 		if isParsing then
 			tableInsert(stats.insertedNames, resourceName)
@@ -2478,10 +2480,6 @@ local function doEarlyExpansions(tokensToExpand, stats)
 	--   ` ... `
 	--   $symbol
 	--
-	if not stats.hasPreprocessorCode then
-		return tokensToExpand
-	end
-
 	local tokenStack = {} -- We process the last token first, and we may push new tokens onto the stack.
 	local outTokens  = {}
 
@@ -2519,7 +2517,7 @@ local function doEarlyExpansions(tokensToExpand, stats)
 			tableInsert(outTokens, stringTok)
 			tableRemove(tokenStack) -- the string
 
-		-- Symbol. (Should this expand later? Does it matter? Yeah, do this in the AST code instead.)
+		-- Symbol. (Should this expand later? Does it matter? Yeah, do this in the AST code instead. @Cleanup)
 		elseif isToken(tok, "pp_symbol") then
 			local ppSymbolTok = tok
 
@@ -2549,10 +2547,6 @@ local function doLateExpansions(tokensToExpand, stats, allowBacktickStrings, all
 	-- Expand expressions:
 	--   @insert "name"
 	--
-	if not stats.hasPreprocessorCode then
-		return tokensToExpand
-	end
-
 	local tokenStack = {} -- We process the last token first, and we may push new tokens onto the stack.
 	local outTokens  = {}
 
@@ -3474,6 +3468,7 @@ local function _processFileOrString(params, isFile)
 		if not params.code then  error("Missing 'code' in params.", 2)  end
 	end
 
+	-- Read input.
 	local luaUnprocessed, virtualPathIn
 
 	if isFile then
@@ -3500,7 +3495,7 @@ local function _processFileOrString(params, isFile)
 
 	current_anytime_fastStrings                 = params.fastStrings
 	current_parsing_insertCount                 = 0
-	current_parsingAndMeta_fileBuffers          = {[virtualPathIn]=luaUnprocessed} -- Doesn't have to be the contents of files if params.onInsert() is defined.
+	current_parsingAndMeta_resourceCache        = {[virtualPathIn]=luaUnprocessed} -- The contents of files, unless params.onInsert() is specified in which case it's user defined.
 	current_parsingAndMeta_onInsert             = params.onInsert
 	current_parsingAndMeta_addLineNumbers       = params.addLineNumbers
 	current_parsingAndMeta_macroPrefix          = params.macroPrefix or ""
@@ -3522,7 +3517,7 @@ local function _processFileOrString(params, isFile)
 	local tokens = _tokenize(luaUnprocessed, virtualPathIn, true, params.backtickStrings, params.jitSyntax)
 	-- printTokens(tokens) -- DEBUG
 
-	-- Info variables.
+	-- Gather info.
 	local lastTok = tokens[#tokens]
 
 	local stats = {
@@ -3536,6 +3531,7 @@ local function _processFileOrString(params, isFile)
 	}
 
 	for _, tok in ipairs(tokens) do
+		-- @Volatile: Make sure to update this when syntax is changed!
 		if isToken(tok, "pp_entry") or isToken(tok, "pp_keyword", "insert") or isToken(tok, "pp_symbol") then
 			stats.hasPreprocessorCode = true
 			stats.hasMetaprogram      = true
@@ -3546,73 +3542,88 @@ local function _processFileOrString(params, isFile)
 		end
 	end
 
-	-- Generate metaprogram.
-	tokens           = doExpansions(params, tokens, stats)
+	-- Generate and run metaprogram.
+	----------------------------------------------------------------
+
+	local shouldProcess = stats.hasPreprocessorCode or params.addLineNumbers
+
+	if shouldProcess then
+		tokens = doExpansions(params, tokens, stats)
+	end
 	stats.tokenCount = #tokens
 
-	local ast = astParse(params, tokens) -- @Speed: Skip this (and running any metaprogram) if not stats.hasPreprocessorCode.
-
-	local luaMeta = astToLua(ast)
-	--[[ DEBUG :PrintCode
-	print("=META===============================")
-	print(luaMeta)
-	print("====================================")
-	--]]
-
-	-- Run metaprogram.
-	--==============================================================
-
-	current_meta_pathForErrorMessages = params.pathMeta or "<meta>"
-	current_meta_output               = {}
-	current_meta_outputStack          = {current_meta_output}
-	current_meta_canOutputNil         = params.canOutputNil ~= false
-	current_meta_releaseMode          = params.release
-	current_meta_maxLogLevel          = params.logLevel or "trace"
-
+	current_meta_maxLogLevel = params.logLevel or "trace"
 	if not LOG_LEVELS[current_meta_maxLogLevel] then
-		errorf(2, "Invalid 'logLevel' value in params. (%s)", current_meta_maxLogLevel)
+		errorf(2, "Invalid 'logLevel' value in params. (%s)", tostring(current_meta_maxLogLevel))
 	end
 
-	if params.pathMeta then
-		local file = assert(io.open(params.pathMeta, "wb"))
-		file:write(luaMeta)
-		file:close()
+	local lua
+
+	if shouldProcess then
+		local luaMeta = astToLua(astParse(params, tokens))
+		--[[ DEBUG :PrintCode
+		print("=META===============================")
+		print(luaMeta)
+		print("====================================")
+		--]]
+
+		-- Run metaprogram.
+		current_meta_pathForErrorMessages = params.pathMeta or "<meta>"
+		current_meta_output               = {}
+		current_meta_outputStack          = {current_meta_output}
+		current_meta_canOutputNil         = params.canOutputNil ~= false
+		current_meta_releaseMode          = params.release
+
+		if params.pathMeta then
+			local file = assert(io.open(params.pathMeta, "wb"))
+			file:write(luaMeta)
+			file:close()
+		end
+
+		if params.onBeforeMeta then  params.onBeforeMeta(luaMeta)  end
+
+		local main_chunk, err = loadLuaString(luaMeta, "@"..current_meta_pathForErrorMessages, metaEnv)
+		if not main_chunk then
+			local ln, _err = err:match"^.-:(%d+): (.*)"
+			errorOnLine(current_meta_pathForErrorMessages, (tonumber(ln) or 0), nil, "%s", (_err or err))
+		end
+
+		current_anytime_isRunningMeta = true
+		main_chunk() -- Note: Our caller should clean up current_meta_pathForErrorMessages etc. on error.
+		current_anytime_isRunningMeta = false
+
+		if not current_parsingAndMeta_isDebug and params.pathMeta then
+			os.remove(params.pathMeta)
+		end
+
+		if current_meta_outputStack[2] then
+			error("Called startInterceptingOutput() more times than stopInterceptingOutput().")
+		end
+
+		lua = table.concat(current_meta_output)
+		--[[ DEBUG :PrintCode
+		print("=OUTPUT=============================")
+		print(lua)
+		print("====================================")
+		--]]
+
+		current_meta_pathForErrorMessages = ""
+		current_meta_output               = nil
+		current_meta_outputStack          = nil
+		current_meta_canOutputNil         = true
+		current_meta_releaseMode          = false
+
+	else
+		-- @Copypaste from above.
+		if not current_parsingAndMeta_isDebug and params.pathMeta then
+			os.remove(params.pathMeta)
+		end
+
+		lua = luaUnprocessed
 	end
 
-	if params.onBeforeMeta then  params.onBeforeMeta(luaMeta)  end
-
-	local main_chunk, err = loadLuaString(luaMeta, "@"..current_meta_pathForErrorMessages, metaEnv)
-	if not main_chunk then
-		local ln, _err = err:match"^.-:(%d+): (.*)"
-		errorOnLine(current_meta_pathForErrorMessages, (tonumber(ln) or 0), nil, "%s", (_err or err))
-	end
-
-	current_anytime_isRunningMeta = true
-	main_chunk() -- Note: Our caller should clean up current_meta_pathForErrorMessages etc. on error.
-	current_anytime_isRunningMeta = false
-
-	if not current_parsingAndMeta_isDebug and params.pathMeta then
-		os.remove(params.pathMeta)
-	end
-
-	if current_meta_outputStack[2] then
-		error("Called startInterceptingOutput() more times than stopInterceptingOutput().")
-	end
-
-	local lua = table.concat(current_meta_output)
-	--[[ DEBUG :PrintCode
-	print("=OUTPUT=============================")
-	print(lua)
-	print("====================================")
-	--]]
-
-	current_meta_pathForErrorMessages = ""
-	current_meta_outputStack          = nil
-	current_meta_output               = nil
-	current_meta_canOutputNil         = true
-	current_meta_releaseMode          = false
-	current_meta_maxLogLevel          = "trace"
-	current_meta_locationTokens       = nil
+	current_meta_maxLogLevel    = "trace"
+	current_meta_locationTokens = nil
 
 	if params.onAfterMeta then
 		local luaModified = params.onAfterMeta(lua)
@@ -3670,18 +3681,20 @@ local function _processFileOrString(params, isFile)
 	current_anytime_pathIn                      = ""
 	current_anytime_pathOut                     = ""
 	current_anytime_fastStrings                 = false
-	current_parsingAndMeta_fileBuffers          = nil
+	current_parsingAndMeta_resourceCache        = nil
 	current_parsingAndMeta_onInsert             = nil
 	current_parsingAndMeta_addLineNumbers       = false
 	current_parsingAndMeta_macroPrefix          = ""
 	current_parsingAndMeta_macroSuffix          = ""
 	current_parsingAndMeta_strictMacroArguments = true
 
+	----------------------------------------------------------------
+
 	if isFile then
 		return info
 	else
 		if specialFirstLine then
-			lua = specialFirstLine..lua
+			lua = specialFirstLine .. lua
 		end
 		return lua, info
 	end
@@ -3692,7 +3705,7 @@ local function processFileOrString(params, isFile)
 		error("Cannot process recursively.", 3) -- Note: We don't return failure in this case - it's a critical error!
 	end
 
-	-- local startTime = os.clock() -- DEBUG
+	-- local startTime = os.clock() -- :DebugMeasureTime  @Incomplete: Add processing time to returned info.
 	local returnValues = nil
 
 	current_parsingAndMeta_isProcessing = true
@@ -3731,20 +3744,20 @@ local function processFileOrString(params, isFile)
 	current_anytime_fastStrings                 = false
 	current_parsing_insertCount                 = 0
 	current_parsingAndMeta_onInsert             = nil
-	current_parsingAndMeta_fileBuffers          = nil
+	current_parsingAndMeta_resourceCache        = nil
 	current_parsingAndMeta_addLineNumbers       = false
 	current_parsingAndMeta_macroPrefix          = ""
 	current_parsingAndMeta_macroSuffix          = ""
 	current_parsingAndMeta_strictMacroArguments = true
 	current_meta_pathForErrorMessages           = ""
-	current_meta_outputStack                    = nil
 	current_meta_output                         = nil
+	current_meta_outputStack                    = nil
 	current_meta_canOutputNil                   = true
 	current_meta_releaseMode                    = false
 	current_meta_maxLogLevel                    = "trace"
 	current_meta_locationTokens                 = nil
 
-	-- print("time", os.clock()-startTime) -- DEBUG
+	-- print("time", os.clock()-startTime) -- :DebugMeasureTime
 	if xpcallOk then
 		return unpack(returnValues, 1, returnValues.n)
 	else

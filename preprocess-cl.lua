@@ -245,12 +245,12 @@ local loadLuaFile = (
 		return loadfile(path, "bt", env)
 	end
 	or function(path, env)
-		local mainChunk, err = loadfile(path)
-		if not mainChunk then  return mainChunk, err  end
+		local chunk, err = loadfile(path)
+		if not chunk then  return nil, err  end
 
-		if env then  setfenv(mainChunk, env)  end
+		if env then  setfenv(chunk, env)  end
 
-		return mainChunk
+		return chunk
 	end
 )
 
