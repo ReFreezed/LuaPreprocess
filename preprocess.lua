@@ -583,7 +583,7 @@ local function _tokenize(s, path, allowPpTokens, allowBacktickStrings, allowJitS
 				end
 			end
 
-			local n = tonumber(numStr) or tonumber(numStrFallback)
+			local n = tonumber(numStr) or tonumber(numStrFallback) or tonumber(numStrFallback:sub(3), 2)
 
 			if not n then
 				errorInFile(s, path, ptr, "Tokenizer", "Invalid number.")
