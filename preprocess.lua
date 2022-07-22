@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaPreprocess v1.21 - preprocessing library
+--=  LuaPreprocess v1.21-dev - preprocessing library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see the bottom of this file)
@@ -132,7 +132,7 @@
 
 
 
-local PP_VERSION = "1.21.0"
+local PP_VERSION = "1.21.0-dev"
 
 local MAX_DUPLICATE_FILE_INSERTS  = 1000 -- @Incomplete: Make this a parameter for processFile()/processString().
 local MAX_CODE_LENGTH_IN_MESSAGES = 60
